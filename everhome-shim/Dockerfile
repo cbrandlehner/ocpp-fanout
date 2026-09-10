@@ -1,4 +1,4 @@
-FROM python:3.12-alpine AS test
+FROM python:3.14-alpine AS test
 WORKDIR /app
 COPY requirements.txt requirements-dev.txt ./
 RUN pip install --no-cache-dir -r requirements-dev.txt
@@ -6,7 +6,7 @@ COPY ocpp_codec.py app.py ui_events.py ./
 COPY tests ./tests
 RUN python -m pytest -q && echo ok > /ok
 
-FROM python:3.12-alpine
+FROM python:3.14-alpine
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1
 COPY --from=test /ok /ok
