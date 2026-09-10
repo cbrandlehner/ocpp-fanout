@@ -14,19 +14,6 @@ networks:
 volumes:
   ui-data:
 
-x-logging: &default-logging
-  driver: json-file
-  options:
-    max-size: "10m"
-    max-file: "5"
-
-x-shim: &shim
-  image: ocpp-fanout-shim:local
-  build: ./everhome-shim
-  restart: unless-stopped
-  networks: [ocpp]
-  logging: *default-logging
-
 services:
   dummy-csms:
     image: ocpp-fanout-dummy:local
@@ -42,21 +29,21 @@ services:
     networks: [ocpp]
     expose: ["9001"]
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9001/health', timeout=3)",
-        ]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9001/health', timeout=3)"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
-    logging: *default-logging
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 
   everhome-shim:
-    <<: *shim
+    image: ocpp-fanout-shim:local
+    build: ./everhome-shim
+    restart: unless-stopped
     environment:
       SHIM_PORT: "9003"
       SHIM_NAME: everhome-shim
@@ -68,22 +55,24 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       TZ: ${TZ:-UTC}
       UI_EVENT_URL: http://ui:8080/internal/event
+    networks: [ocpp]
     expose: ["9003"]
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9003/health', timeout=3)",
-        ]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9003/health', timeout=3)"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 
   enphase-shim:
-    <<: *shim
+    image: ocpp-fanout-shim:local
+    build: ./everhome-shim
+    restart: unless-stopped
     environment:
       SHIM_PORT: "9004"
       SHIM_NAME: enphase-shim
@@ -95,22 +84,24 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       TZ: ${TZ:-UTC}
       UI_EVENT_URL: http://ui:8080/internal/event
+    networks: [ocpp]
     expose: ["9004"]
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9004/health', timeout=3)",
-        ]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9004/health', timeout=3)"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 
   monta-shim:
-    <<: *shim
+    image: ocpp-fanout-shim:local
+    build: ./everhome-shim
+    restart: unless-stopped
     environment:
       SHIM_PORT: "9005"
       SHIM_NAME: monta-shim
@@ -122,19 +113,19 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       TZ: ${TZ:-UTC}
       UI_EVENT_URL: http://ui:8080/internal/event
+    networks: [ocpp]
     expose: ["9005"]
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9005/health', timeout=3)",
-        ]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9005/health', timeout=3)"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 
   ocpp-proxy:
     image: ghcr.io/joulo-nl/joulo-ocpp-proxy:main
@@ -168,18 +159,16 @@ services:
       - "${PROXY_PORT:-9100}:${PROXY_LISTEN_PORT:-9000}"
     networks: [ocpp]
     healthcheck:
-      test:
-        [
-          "CMD",
-          "node",
-          "-e",
-          "require('net').connect(process.env.PORT||9000,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))",
-        ]
+      test: ["CMD", "node", "-e", "require('net').connect(process.env.PORT||9000,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 15s
-    logging: *default-logging
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 
   ui:
     image: ocpp-fanout-ui:local
@@ -197,15 +186,13 @@ services:
       - "${UI_PORT:-8088}:8080"
     networks: [ocpp]
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/status', timeout=3)",
-        ]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/status', timeout=3)"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
-    logging: *default-logging
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
