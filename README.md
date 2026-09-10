@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/cbrandlehner/ocpp-fanout/actions/workflows/ci.yml/badge.svg)](https://github.com/cbrandlehner/ocpp-fanout/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/cbrandlehner/ocpp-fanout/actions/workflows/codeql.yml/badge.svg)](https://github.com/cbrandlehner/ocpp-fanout/actions/workflows/codeql.yml)
+[![Dependency review](https://github.com/cbrandlehner/ocpp-fanout/actions/workflows/dependency-review.yml/badge.svg)](https://github.com/cbrandlehner/ocpp-fanout/actions/workflows/dependency-review.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![OCPP 1.6-J](https://img.shields.io/badge/OCPP-1.6--J-0b7285.svg)](https://openchargealliance.org/)
 [![Docker Compose](https://img.shields.io/badge/Docker-Compose-2496ED.svg?logo=docker&logoColor=white)](https://docs.docker.com/compose/)
