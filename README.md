@@ -5,6 +5,7 @@
 [![OCPP 1.6-J](https://img.shields.io/badge/OCPP-1.6--J-0b7285.svg)](https://openchargealliance.org/)
 [![Docker Compose](https://img.shields.io/badge/Docker-Compose-2496ED.svg?logo=docker&logoColor=white)](https://docs.docker.com/compose/)
 [![Unofficial](https://img.shields.io/badge/vendor_support-none-lightgrey.svg)](#disclaimer)
+[![GitHub Sponsors](https://img.shields.io/github/sponsors/cbrandlehner?label=Sponsor)](https://github.com/sponsors/cbrandlehner)
 
 Most wallboxes expose **one** OCPP slot. You still want a local controller
 (MQTT, HTTP, Modbus) to set current and phases. At the same time, backends such
