@@ -190,8 +190,10 @@ docker compose -f docker-compose.simple.yml up -d --build
 | Web-UI | `http://<dieser-Host>:8088/` |
 
 **Portainer:** Stack aus derselben `docker-compose.yml` anlegen, `.env` als
-Stack-Umgebung einfügen (oder dieses Repository einbinden). Compose **baut**
-`dummy-csms`, `everhome-shim` und `ui` lokal; Joulo kommt von `ghcr.io`.
+Stack-Umgebung einfügen (oder dieses Repository einbinden). Dummy, Shims und UI
+sind **lokale Builds** (`ocpp-fanout-*:local`) mit `pull_policy: never` —
+**Pull latest image** aus lassen, sonst sucht Portainer auf Docker Hub und
+scheitert. Nur Joulo kommt von `ghcr.io`. Neu bauen: `docker compose up -d --build`.
 
 Danach in der UI unter Setup URLs, Allowlist und die StatusNotification-Intervalle
 prüfen (Standard 60 s beim Laden, 7 s im Idle). Erlaubte Befehle und diese

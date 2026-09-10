@@ -195,9 +195,10 @@ docker compose -f docker-compose.simple.yml up -d --build
 | Web UI | `http://<this-host>:8088/` |
 
 **Portainer:** add a stack from the same `docker-compose.yml` and paste `.env` as
-stack environment (or point Portainer at this repository). Compose **builds**
-`dummy-csms`, `everhome-shim`, and `ui` locally; the Joulo image comes from
-`ghcr.io`.
+stack environment (or point Portainer at this repository). Dummy, shims, and UI
+are **local builds** (`ocpp-fanout-*:local`) with `pull_policy: never` — leave
+**Pull latest image** unchecked, or Portainer will try Docker Hub and fail.
+Only Joulo is pulled from `ghcr.io`. Rebuild with `docker compose up -d --build`.
 
 After start, open Setup in the UI to confirm URLs, the command allowlist, and
 the StatusNotification intervals (default 60 s while charging, 7 s while idle).

@@ -19,6 +19,7 @@ services:
   dummy-csms:
     image: ocpp-fanout-dummy:local
     build: ./dummy-csms
+    pull_policy: never
     restart: unless-stopped
     environment:
       DUMMY_PORT: "9001"
@@ -30,6 +31,7 @@ services:
   everhome-shim:
     image: ocpp-fanout-shim:local
     build: ./everhome-shim
+    pull_policy: never
     restart: unless-stopped
     environment:
       SHIM_PORT: "9003"
@@ -44,6 +46,7 @@ services:
   enphase-shim:
     image: ocpp-fanout-shim:local
     build: ./everhome-shim
+    pull_policy: never
     restart: unless-stopped
     environment:
       SHIM_PORT: "9004"
@@ -58,6 +61,7 @@ services:
   monta-shim:
     image: ocpp-fanout-shim:local
     build: ./everhome-shim
+    pull_policy: never
     restart: unless-stopped
     environment:
       SHIM_PORT: "9005"
@@ -93,6 +97,7 @@ services:
   ui:
     image: ocpp-fanout-ui:local
     build: ./ui
+    pull_policy: never
     restart: unless-stopped
     environment:
       UI_DATA_DIR: /data
