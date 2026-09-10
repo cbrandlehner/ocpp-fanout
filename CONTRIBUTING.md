@@ -10,6 +10,12 @@
 
 Dockerfiles for `dummy-csms` and `everhome-shim` run the same tests in a build stage.
 
+## Dependabot
+
+Version bumps are grouped weekly. Dependabot still opens pull requests (GitHub
+does not allow it to commit to `main` directly). Those PRs are squash-merged
+automatically after CI is green — no review needed.
+
 ## Secrets
 
 Do not commit `.env`, charger serials, vendor OCPP URLs, or LAN addresses.

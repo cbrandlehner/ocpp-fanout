@@ -1,0 +1,50 @@
+# Dependabot still opens PRs (GitHub does not allow direct commits to main).
+# .github/workflows/dependabot-auto-merge.yml squash-merges them after CI.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /dummy-csms
+    schedule:
+      interval: weekly
+    groups:
+      dummy-csms:
+        patterns: ["*"]
+
+  - package-ecosystem: pip
+    directory: /everhome-shim
+    schedule:
+      interval: weekly
+    groups:
+      everhome-shim:
+        patterns: ["*"]
+
+  - package-ecosystem: pip
+    directory: /ui
+    schedule:
+      interval: weekly
+    groups:
+      ui:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /dummy-csms
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /everhome-shim
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /ui
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
