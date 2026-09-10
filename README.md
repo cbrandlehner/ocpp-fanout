@@ -4,6 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![OCPP 1.6-J](https://img.shields.io/badge/OCPP-1.6--J-0b7285.svg)](https://openchargealliance.org/)
 [![Docker Compose](https://img.shields.io/badge/Docker-Compose-2496ED.svg?logo=docker&logoColor=white)](https://docs.docker.com/compose/)
+[![Unofficial](https://img.shields.io/badge/vendor_support-none-lightgrey.svg)](#disclaimer)
 
 Most wallboxes expose **one** OCPP slot. You still want a local controller
 (MQTT, HTTP, Modbus) to set current and phases. At the same time, backends such
@@ -17,6 +18,11 @@ because Joulo alone cannot keep those secondaries alive.
 
 A web UI on the same host shows the live packet flow and lets you choose, per
 backend, which CSMS commands may reach the charger.
+
+> **Disclaimer.** ocpp-fanout is an independent, no-support open-source project.
+> It is not affiliated with, endorsed by, or supported by go-e, Enphase,
+> everHome, Monta, Joulo, Tesla, or any other vendor whose products it can talk
+> to. Use it at your own risk.
 
 German: [docs/ANLEITUNG.md](docs/ANLEITUNG.md).
 
@@ -204,6 +210,13 @@ Do not commit `.env`.
 | Monta live OK, empty charge log | Needs `StartTransaction` with an idTag Monta accepts. AutoStart in Monta Hub requires Private visibility and EVSE support for `RemoteStart`. |
 | Monta shows Paused | OCPP `SuspendedEVSE` / `SuspendedEV` at 0 W — session open, no energy. |
 | Packets never “from Monta” | Monta mostly receives; it rarely sends (e.g. `Trigger MeterValues`). |
+
+## Disclaimer
+
+ocpp-fanout is community software. None of the integrated products’ vendors
+provide support for this stack, and this repository does not offer a support
+contract either. Names of chargers, CSMS platforms, and other hardware appear
+only to describe interoperability.
 
 ## License
 

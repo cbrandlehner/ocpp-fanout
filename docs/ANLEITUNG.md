@@ -1,5 +1,11 @@
 # ocpp-fanout
 
+> **Hinweis.** ocpp-fanout ist ein unabhängiges Open-Source-Projekt ohne
+> Herstellersupport. Es steht in keiner Verbindung zu go-e, Enphase, everHome,
+> Monta, Joulo, Tesla oder anderen Anbietern, deren Produkte es ansprechen
+> kann, und wird von diesen weder unterstützt noch empfohlen. Nutzung auf
+> eigene Gefahr.
+
 Die meisten Wallboxen haben **einen** OCPP-Slot. Lokal soll trotzdem der eigene
 Regler laden (MQTT, HTTP, Modbus). Gleichzeitig wollen Dienste wie ein Enphase
 IQ Energy Router, EverHome oder Monta **live** mitlesen — ohne die Box still
@@ -13,7 +19,7 @@ nötig, weil Joulo allein die Secondaries nicht am Leben hält.
 Eine Web-UI auf demselben Host zeigt den Live-Datenfluss und lässt pro Backend
 wählen, welche CSMS-Befehle die Wallbox erreichen dürfen.
 
-Englisch: [ocpp-fanout-README.md](../ocpp-fanout-README.md).
+Englisch: [README.md](../README.md).
 
 ![Live-Ansicht: Gemini, EV, joulo, dummy, Shims, Enphase, EcoTracker, Monta](img/live-ui.png)
 
@@ -199,6 +205,12 @@ OCPP-Calls inkl. Payload liegen im Volume `ui-data`:
 | Monta live OK, Ladeprotokoll leer | Braucht `StartTransaction` mit einem idTag, den Monta akzeptiert. AutoStart im Hub nur bei Private und wenn die EVSE `RemoteStart` kann. |
 | Monta zeigt Paused | OCPP `SuspendedEVSE` / `SuspendedEV` bei 0 W — Session offen, kein Strom. |
 | Packets nie „von Monta“ | Monta empfängt vor allem; sendet selten (z. B. `Trigger MeterValues`). |
+
+## Hinweis
+
+ocpp-fanout ist Community-Software. Keiner der genannten Hersteller leistet
+Support für diesen Stack, und dieses Repository bietet auch keinen
+Support-Vertrag. Produktnamen dienen nur der Beschreibung der Anbindung.
 
 ## Lizenz
 
