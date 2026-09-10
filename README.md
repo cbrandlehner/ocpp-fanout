@@ -170,13 +170,19 @@ While charging, the EV card shows phases, A per phase, and kW from MeterValues
 
 ## Install
 
-One Compose file: [`docker-compose.yml`](docker-compose.yml).
-Leave a backend URL empty to skip that secondary.
+Two Compose files:
+
+| File | Use |
+|------|-----|
+| [`docker-compose.yml`](docker-compose.yml) | Healthchecks and rotated json-file logs. Backend URLs may come from `.env`. |
+| [`docker-compose.simple.yml`](docker-compose.simple.yml) | No healthchecks, Docker default logging. Charge point id, backend URLs, and allowlists are set in the **Setup** UI only. |
 
 ```bash
 cp .env.example .env
-# edit CHARGE_POINT_ID and ENPHASE_ / EVERHOME_ / MONTA_ OCPP URLs
+# full stack (env URLs optional):
 docker compose up -d --build
+# or simple:
+docker compose -f docker-compose.simple.yml up -d --build
 ```
 
 | | |

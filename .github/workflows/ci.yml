@@ -22,5 +22,7 @@ jobs:
       - name: ui tests
         working-directory: ui
         run: pip install pytest && pytest -q
-      - name: compose file
-        run: docker compose --env-file .env.example config --quiet
+      - name: compose files
+        run: |
+          docker compose --env-file .env.example config --quiet
+          docker compose -f docker-compose.simple.yml config --quiet

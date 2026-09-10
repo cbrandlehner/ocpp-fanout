@@ -167,13 +167,19 @@ MeterValues (`Current.Import` L1/L2/L3 und `Power.Active.Import`).
 
 ## Installation
 
-Eine Compose-Datei: [`docker-compose.yml`](../docker-compose.yml).
-Leere Backend-URL = dieser Secondary fällt weg.
+Zwei Compose-Dateien:
+
+| Datei | Zweck |
+|------|--------|
+| [`docker-compose.yml`](../docker-compose.yml) | Healthchecks und rotierte json-file-Logs. Backend-URLs dürfen aus `.env` kommen. |
+| [`docker-compose.simple.yml`](../docker-compose.simple.yml) | Keine Healthchecks, Docker-Default-Logging. Charge-Point-ID, Backend-URLs und Allowlist nur in der **Setup**-UI. |
 
 ```bash
 cp .env.example .env
-# CHARGE_POINT_ID und ENPHASE_ / EVERHOME_ / MONTA_ OCPP-URLs setzen
+# voller Stack (URLs in .env optional):
 docker compose up -d --build
+# oder einfach:
+docker compose -f docker-compose.simple.yml up -d --build
 ```
 
 | | |

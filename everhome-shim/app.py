@@ -107,7 +107,13 @@ DEFAULT_CONFIG: dict[str, tuple[str, bool]] = {
 }
 
 
-_allowed_memo: dict[str, Any] = {"at": 0.0, "items": []}
+_setup_memo: dict[str, Any] = {
+    "at": 0.0,
+    "url": "",
+    "appendCpid": None,
+    "cpid": "",
+    "allowed": [],
+}
 
 
 def parse_allowed(raw: list[Any] | str | None) -> list[str]:
@@ -134,28 +140,44 @@ def command_allowed(action: str, payload: dict[str, Any] | None, allowed: list[s
     return False
 
 
-async def fetch_allowed_commands() -> list[str]:
+async def fetch_setup_config() -> dict[str, Any]:
+    """URL, appendCpid, cpid, allowlist — env first, Setup UI overrides when set."""
     loop = asyncio.get_running_loop()
     now = loop.time()
-    if now - float(_allowed_memo["at"]) < 2.0:
-        return list(_allowed_memo["items"])
-    items = parse_allowed(ALLOWED_ENV)
+    if now - float(_setup_memo["at"]) < 2.0:
+        return dict(_setup_memo)
+    url = UPSTREAM
+    append: bool | None = APPEND_CPID
+    cpid = CHARGE_POINT_ID
+    allowed = parse_allowed(ALLOWED_ENV)
     if UI_CONFIG_URL:
         try:
             timeout = ClientTimeout(total=1.5)
             async with ClientSession(timeout=timeout) as session:
                 async with session.get(UI_CONFIG_URL) as resp:
                     cfg = await resp.json()
+            charger = cfg.get("charger") or {}
+            if str(charger.get("cpid") or "").strip():
+                cpid = str(charger.get("cpid")).strip()
             node = backend_node()
             for sec in cfg.get("secondaries") or []:
-                if str(sec.get("id") or sec.get("kind") or "") == node:
-                    items = parse_allowed(sec.get("allowedCommands") or [])
-                    break
+                if str(sec.get("id") or sec.get("kind") or "") != node:
+                    continue
+                if str(sec.get("url") or "").strip():
+                    url = str(sec.get("url")).strip()
+                if "appendCpid" in sec:
+                    append = bool(sec.get("appendCpid"))
+                allowed = parse_allowed(sec.get("allowedCommands") or [])
+                break
         except Exception as exc:  # noqa: BLE001
             jlog("debug", "config fetch failed", error=str(exc))
-    _allowed_memo["at"] = now
-    _allowed_memo["items"] = items
-    return items
+    _setup_memo.update(at=now, url=url, appendCpid=append, cpid=cpid, allowed=allowed)
+    return dict(_setup_memo)
+
+
+async def fetch_allowed_commands() -> list[str]:
+    cfg = await fetch_setup_config()
+    return list(cfg.get("allowed") or [])
 
 
 async def inject_to_charger(action: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -166,8 +188,10 @@ async def inject_to_charger(action: str, payload: dict[str, Any]) -> dict[str, A
         "payload": payload or {},
         "via": backend_node(),
     }
-    if CHARGE_POINT_ID:
-        body["chargePointId"] = CHARGE_POINT_ID
+    setup = await fetch_setup_config()
+    cpid = str(setup.get("cpid") or CHARGE_POINT_ID or "")
+    if cpid:
+        body["chargePointId"] = cpid
     try:
         timeout = ClientTimeout(total=15)
         async with ClientSession(timeout=timeout) as session:
@@ -231,10 +255,16 @@ def jlog(level: str, msg: str, **fields: Any) -> None:
     )
 
 
-def resolve_upstream(url: str) -> str:
+def resolve_upstream(
+    url: str,
+    append: bool | None = None,
+    cpid: str | None = None,
+) -> str:
     url = url.rstrip("/")
-    if APPEND_CPID and CHARGE_POINT_ID and not url.endswith("/" + CHARGE_POINT_ID):
-        url = f"{url}/{CHARGE_POINT_ID}"
+    use_append = APPEND_CPID if append is None else append
+    use_cpid = CHARGE_POINT_ID if cpid is None else (cpid or "")
+    if use_append and use_cpid and not url.endswith("/" + use_cpid):
+        url = f"{url}/{use_cpid}"
     return url
 
 
@@ -451,12 +481,18 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
     STATE["sessions"] += 1
     jlog("info", "joulo connected", protocol=ws.ws_protocol, path=request.path)
 
-    if not UPSTREAM:
-        jlog("error", "UPSTREAM_OCPP_URL empty")
+    setup = await fetch_setup_config()
+    upstream_raw = str(setup.get("url") or "").strip()
+    if not upstream_raw:
+        jlog("error", "no upstream URL in env or Setup")
         await ws.close(code=1011, message=b"no upstream")
         return ws
 
-    upstream_url = resolve_upstream(UPSTREAM)
+    upstream_url = resolve_upstream(
+        upstream_raw,
+        append=setup.get("appendCpid"),
+        cpid=str(setup.get("cpid") or ""),
+    )
     timeout = ClientTimeout(total=None, sock_connect=15, sock_read=None)
     session = ClientSession(timeout=timeout)
     upstream = None

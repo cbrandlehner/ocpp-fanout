@@ -27,14 +27,20 @@ if [ -z "${ENPHASE_OCPP_URL:-}" ] && [ -n "${ENPHASE_ROUTER_IP:-}" ]; then
 fi
 
 SECONDARIES=""
-if [ -n "${ENPHASE_OCPP_URL:-}" ]; then
+if [ "${INCLUDE_ALL_SHIMS:-false}" = "true" ]; then
   append_url "ws://enphase-shim:9004" false
-fi
-if [ -n "${EVERHOME_OCPP_URL:-}" ]; then
   append_url "ws://everhome-shim:9003" false
-fi
-if [ -n "${MONTA_OCPP_URL:-}" ]; then
   append_url "ws://monta-shim:9005" false
+else
+  if [ -n "${ENPHASE_OCPP_URL:-}" ]; then
+    append_url "ws://enphase-shim:9004" false
+  fi
+  if [ -n "${EVERHOME_OCPP_URL:-}" ]; then
+    append_url "ws://everhome-shim:9003" false
+  fi
+  if [ -n "${MONTA_OCPP_URL:-}" ]; then
+    append_url "ws://monta-shim:9005" false
+  fi
 fi
 
 export SECONDARY_CSMS_URLS="${SECONDARIES}"

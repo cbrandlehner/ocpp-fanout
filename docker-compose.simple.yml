@@ -1,0 +1,104 @@
+# ocpp-fanout — no healthchecks, Docker default logging.
+# Backend URLs, charge point id, and allowlists are set in the web UI (Setup).
+#
+#   cp .env.example .env   # only PROXY_PORT / UI_PORT / TZ needed
+#   docker compose -f docker-compose.simple.yml up -d --build
+#
+# Wallbox:  ws://<this-host>:${PROXY_PORT:-9100}/<chargePointId>
+# UI:       http://<this-host>:${UI_PORT:-8088}/
+
+name: ocpp-fanout
+
+networks:
+  ocpp:
+
+volumes:
+  ui-data:
+
+services:
+  dummy-csms:
+    image: ocpp-fanout-dummy:local
+    build: ./dummy-csms
+    restart: unless-stopped
+    environment:
+      DUMMY_PORT: "9001"
+      TZ: ${TZ:-UTC}
+      UI_EVENT_URL: http://ui:8080/internal/event
+    networks: [ocpp]
+    expose: ["9001"]
+
+  everhome-shim:
+    image: ocpp-fanout-shim:local
+    build: ./everhome-shim
+    restart: unless-stopped
+    environment:
+      SHIM_PORT: "9003"
+      SHIM_NAME: everhome-shim
+      INJECT_URL: http://dummy-csms:9001/inject
+      UI_CONFIG_URL: http://ui:8080/api/config
+      TZ: ${TZ:-UTC}
+      UI_EVENT_URL: http://ui:8080/internal/event
+    networks: [ocpp]
+    expose: ["9003"]
+
+  enphase-shim:
+    image: ocpp-fanout-shim:local
+    build: ./everhome-shim
+    restart: unless-stopped
+    environment:
+      SHIM_PORT: "9004"
+      SHIM_NAME: enphase-shim
+      INJECT_URL: http://dummy-csms:9001/inject
+      UI_CONFIG_URL: http://ui:8080/api/config
+      TZ: ${TZ:-UTC}
+      UI_EVENT_URL: http://ui:8080/internal/event
+    networks: [ocpp]
+    expose: ["9004"]
+
+  monta-shim:
+    image: ocpp-fanout-shim:local
+    build: ./everhome-shim
+    restart: unless-stopped
+    environment:
+      SHIM_PORT: "9005"
+      SHIM_NAME: monta-shim
+      INJECT_URL: http://dummy-csms:9001/inject
+      UI_CONFIG_URL: http://ui:8080/api/config
+      TZ: ${TZ:-UTC}
+      UI_EVENT_URL: http://ui:8080/internal/event
+    networks: [ocpp]
+    expose: ["9005"]
+
+  ocpp-proxy:
+    image: ghcr.io/joulo-nl/joulo-ocpp-proxy:main
+    restart: unless-stopped
+    depends_on:
+      - dummy-csms
+      - everhome-shim
+      - enphase-shim
+      - monta-shim
+    environment:
+      PORT: "9000"
+      PRIMARY_CSMS_URL: ws://dummy-csms:9001
+      PRIMARY_CSMS_APPEND_CHARGE_POINT_ID: "true"
+      INCLUDE_ALL_SHIMS: "true"
+      TZ: ${TZ:-UTC}
+    volumes:
+      - ./proxy/entrypoint.sh:/entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    ports:
+      - "${PROXY_PORT:-9100}:9000"
+    networks: [ocpp]
+
+  ui:
+    image: ocpp-fanout-ui:local
+    build: ./ui
+    restart: unless-stopped
+    environment:
+      UI_DATA_DIR: /data
+      TZ: ${TZ:-UTC}
+    volumes:
+      - ui-data:/data
+    ports:
+      - "${UI_PORT:-8088}:8080"
+    networks: [ocpp]

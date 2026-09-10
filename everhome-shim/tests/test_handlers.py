@@ -201,3 +201,6 @@ def test_resolve_upstream_appends_cpid(monkeypatch):
     assert appmod.resolve_upstream("ws://192.0.2.10:8083/CP001") == (
         "ws://192.0.2.10:8083/CP001"
     )
+    assert appmod.resolve_upstream(
+        "ws://192.0.2.10:8083", append=True, cpid="ABC"
+    ) == "ws://192.0.2.10:8083/ABC"
