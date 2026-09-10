@@ -1,0 +1,279 @@
+:root,
+[data-theme="dark"] {
+  --bg: #0c1017;
+  --bg2: #141a24;
+  --ink: #eef2f7;
+  --muted: #8b95a6;
+  --line: #2a3342;
+  --accent: #6ea8ff;
+  --ok: #3dd68c;
+  --drop: #ff6b6b;
+  --amber: #ffc46b;
+  --card: #1a2230;
+  --glow: 0 0 0 0 rgba(110, 168, 255, 0.6);
+}
+[data-theme="light"] {
+  --bg: #f4f6f9;
+  --bg2: #fff;
+  --ink: #1b2330;
+  --muted: #5b6573;
+  --line: #d5dbe3;
+  --accent: #2457d6;
+  --ok: #1f7a4d;
+  --drop: #b42318;
+  --amber: #9a6700;
+  --card: #fff;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+}
+.top {
+  display: flex; align-items: center; gap: 16px;
+  padding: 12px 20px; border-bottom: 1px solid var(--line);
+  background: var(--bg2);
+}
+.brand { font-weight: 700; letter-spacing: .04em; }
+nav { display: flex; gap: 6px; }
+nav button, #theme, .setup button, #add-secondary {
+  font: inherit; color: var(--ink); background: transparent;
+  border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; cursor: pointer;
+}
+nav button.on, .setup button[type="submit"] {
+  background: var(--accent); color: #081018; border-color: transparent; font-weight: 600;
+}
+.view { display: none; flex: 1; min-height: 0; }
+.view.on { display: flex; }
+#live { display: none; }
+#live.on { display: grid; grid-template-columns: 1fr 280px; }
+.stage {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(140px, 1fr)) 110px;
+  grid-template-areas:
+    "site site . . trash"
+    "joulo dummy . . trash"
+    "eshim vshim mshim . trash"
+    "enphase everhome monta . trash";
+  gap: 18px;
+  padding: 28px;
+  align-items: center;
+}
+.wires {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+}
+.wires path {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 2;
+  stroke-dasharray: 5 8;
+  stroke-linecap: round;
+  opacity: 0.55;
+}
+.wires path.mqtt { stroke: var(--ok); opacity: 0.45; }
+.wires path.drop { stroke: var(--drop); opacity: 0.28; }
+.node {
+  position: relative;
+  z-index: 1;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 12px;
+  text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  transition: box-shadow .25s, border-color .25s;
+}
+.node img { width: 140px; height: 110px; object-fit: contain; }
+.node span { font-size: 13px; color: var(--muted); }
+.node.sw { min-height: 110px; justify-content: center; }
+.glyph { font-family: "IBM Plex Mono", monospace; color: var(--accent); font-size: 12px; }
+.node.glow { box-shadow: 0 0 0 2px var(--accent), 0 0 28px color-mix(in srgb, var(--accent) 50%, transparent); }
+.site {
+  grid-area: site;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  position: relative;
+  z-index: 1;
+}
+.site .node { flex: 1 1 140px; }
+.ev-link {
+  flex: 0 0 78px;
+  height: 90px;
+  overflow: visible;
+  pointer-events: none;
+}
+.ev-cable {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 3.4;
+  stroke-linecap: round;
+  opacity: 0;
+  transition: opacity .28s, stroke .28s, filter .28s;
+}
+.site.plugged .ev-cable { opacity: 0.9; }
+.site.charging .ev-cable {
+  stroke: var(--ok);
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--ok) 75%, transparent));
+}
+.electron {
+  fill: #e9ffe9;
+  opacity: 0;
+  filter: drop-shadow(0 0 6px var(--ok));
+}
+.site.charging .electron { opacity: 1; }
+.node.ev img.ev-photo {
+  width: 168px;
+  height: 78px;
+  object-fit: contain;
+}
+.ev-photo-light { display: none; }
+[data-theme="light"] .ev-photo-dark { display: none; }
+[data-theme="light"] .ev-photo-light { display: block; }
+.site.charging .node.ev img.ev-photo { width: 148px; height: 56px; }
+.ev-stats {
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+  font: 500 11px/1.35 "IBM Plex Mono", monospace;
+  color: var(--ok);
+  text-align: center;
+}
+.site.charging .ev-stats { display: flex; }
+.ev-body { fill: #e7ebf2; }
+.ev-glass { fill: #5b6a80; }
+.ev-wheel { fill: #1a1f28; }
+.ev-rim { fill: #8b95a6; }
+.ev-port { fill: #2a3342; stroke: #8b95a6; stroke-width: 1.2; }
+.ev-light { fill: #d5dbe6; }
+.ev-line { fill: none; stroke: #c5ccd8; stroke-width: 1; }
+.ev-shadow { fill: #000; opacity: 0.2; }
+.site.charging .ev-port { fill: var(--ok); stroke: var(--ok); }
+[data-theme="light"] .ev-body { fill: #2c3544; }
+[data-theme="light"] .ev-glass { fill: #9aa6b8; }
+[data-theme="light"] .ev-wheel { fill: #12161d; }
+[data-theme="light"] .ev-rim { fill: #6b7380; }
+[data-theme="light"] .ev-port { fill: #1b2330; stroke: #5b6573; }
+[data-theme="light"] .ev-light { fill: #ffd27a; }
+[data-theme="light"] .ev-line { stroke: #1b2330; opacity: 0.28; }
+[data-node="joulo"] { grid-area: joulo; }
+[data-node="dummy"] { grid-area: dummy; }
+[data-node="enphase-shim"] { grid-area: eshim; }
+[data-node="everhome-shim"] { grid-area: vshim; }
+[data-node="enphase"] { grid-area: enphase; }
+[data-node="everhome"] { grid-area: everhome; }
+[data-node="monta-shim"] { grid-area: mshim; }
+[data-node="monta"] { grid-area: monta; }
+.trash { grid-area: trash; align-self: end; justify-self: center; text-align: center; color: var(--muted); position: relative; z-index: 1; }
+.trash .bin {
+  width: 54px; height: 48px; margin: 14px auto 6px;
+  border: 3px solid var(--drop); border-top: none; border-radius: 0 0 10px 10px;
+}
+.trash .lid {
+  width: 62px; height: 8px; margin: 0 auto;
+  background: var(--drop); border-radius: 4px;
+  transform-origin: 8px 50%;
+  transition: transform .25s;
+}
+.trash.open .lid { transform: rotate(-42deg); }
+.chip {
+  position: absolute; z-index: 6;
+  padding: 6px 10px; border-radius: 999px;
+  font: 600 12px/1 "IBM Plex Sans", sans-serif;
+  white-space: nowrap; pointer-events: none;
+  background: var(--accent); color: #081018;
+  box-shadow: 0 8px 24px rgba(0,0,0,.35);
+  transform: translate(-50%, -50%);
+}
+.chip.amber { background: var(--amber); }
+.chip.drop { background: var(--drop); color: #fff; }
+.log {
+  border-left: 1px solid var(--line); padding: 16px; overflow: auto; background: var(--bg2);
+}
+.log h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.log ol { list-style: none; margin: 0; padding: 0; }
+.log li { font-size: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.log .drop { color: var(--drop); }
+.setup { max-width: 860px; padding: 24px; display: flex; flex-direction: column; gap: 18px; }
+.setup section { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
+.setup h2 { margin: 0 0 12px; font-size: 16px; }
+.setup label { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; font-size: 13px; color: var(--muted); }
+.setup input, .setup select {
+  font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 10px; padding: 8px 10px;
+}
+.sec-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 8px;
+  align-items: end;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.sec-allow {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding-top: 6px;
+}
+.allow-group {
+  width: 100%;
+  font-size: 11px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.allow-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 10px;
+  cursor: pointer;
+  user-select: none;
+}
+.allow-toggle input { margin: 0; }
+.allow-toggle:has(input:checked) {
+  border-color: var(--ok);
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+}
+.allow-toggle.control:has(input:checked) {
+  border-color: var(--amber);
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 12%, transparent);
+}
+.hint { color: var(--muted); font-size: 13px; }
+.msg { color: var(--ok); }
+@media (max-width: 900px) {
+  #live.on { grid-template-columns: 1fr; }
+  .stage {
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "site site"
+      "joulo dummy"
+      "eshim vshim"
+      "enphase everhome"
+      "mshim monta"
+      "trash trash";
+  }
+}

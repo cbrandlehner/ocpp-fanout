@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ocpp-fanout</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+</head>
+<body data-theme="dark">
+  <header class="top">
+    <div class="brand">ocpp-fanout</div>
+    <nav>
+      <button data-view="live" class="on">Live</button>
+      <button data-view="setup">Setup</button>
+    </nav>
+    <button id="theme" type="button" title="Toggle theme">Theme</button>
+  </header>
+
+  <main id="live" class="view on">
+    <section class="stage" id="stage">
+      <svg class="wires" id="wires" aria-hidden="true"></svg>
+      <div class="site" id="site">
+        <div class="node charger" data-node="charger">
+          <img src="/static/img/goe-gemini.png" alt="go-e Gemini">
+          <span>go-e Gemini</span>
+        </div>
+        <svg class="ev-link" viewBox="0 0 80 90" aria-hidden="true">
+          <path id="ev-cable" class="ev-cable" d="M 2 40 C 18 40, 24 70, 40 72 S 62 46, 78 42"/>
+          <circle class="electron" r="5">
+            <animateMotion dur="1.4s" repeatCount="indefinite" begin="0s">
+              <mpath href="#ev-cable"/>
+            </animateMotion>
+          </circle>
+          <circle class="electron" r="5">
+            <animateMotion dur="1.4s" repeatCount="indefinite" begin="-0.35s">
+              <mpath href="#ev-cable"/>
+            </animateMotion>
+          </circle>
+          <circle class="electron" r="5">
+            <animateMotion dur="1.4s" repeatCount="indefinite" begin="-0.7s">
+              <mpath href="#ev-cable"/>
+            </animateMotion>
+          </circle>
+          <circle class="electron" r="5">
+            <animateMotion dur="1.4s" repeatCount="indefinite" begin="-1.05s">
+              <mpath href="#ev-cable"/>
+            </animateMotion>
+          </circle>
+        </svg>
+        <div class="node ev" data-node="ev">
+          <img class="ev-photo ev-photo-dark" src="/static/img/tesla-models-white.png" alt="Tesla Model S">
+          <img class="ev-photo ev-photo-light" src="/static/img/tesla-models-black.png" alt="Tesla Model S">
+          <span>EV</span>
+          <div class="ev-stats" id="ev-stats">
+            <span data-k="phases"></span>
+            <span data-k="amps"></span>
+            <span data-k="kw"></span>
+          </div>
+        </div>
+      </div>
+      <div class="node sw" data-node="joulo">
+        <span class="glyph">{ proxy }</span>
+        <span>joulo-ocpp-proxy</span>
+      </div>
+      <div class="node sw" data-node="dummy">
+        <span class="glyph">{ primary }</span>
+        <span>dummy-csms</span>
+      </div>
+      <div class="node sw" data-node="enphase-shim">
+        <span class="glyph">{ shim }</span>
+        <span>enphase-shim</span>
+      </div>
+      <div class="node sw" data-node="everhome-shim">
+        <span class="glyph">{ shim }</span>
+        <span>everhome-shim</span>
+      </div>
+      <div class="node sw" data-node="monta-shim">
+        <span class="glyph">{ shim }</span>
+        <span>monta-shim</span>
+      </div>
+      <div class="node" data-node="enphase">
+        <img src="/static/img/enphase-iq-router.png" alt="Enphase IQ Energy Router">
+        <span>Enphase IQ Energy Router</span>
+      </div>
+      <div class="node" data-node="everhome">
+        <img src="/static/img/everhome-ecotracker.png" alt="EcoTracker">
+        <span>EcoTracker</span>
+      </div>
+      <div class="node" data-node="monta">
+        <img src="/static/img/monta.svg" alt="Monta">
+        <span>Monta</span>
+      </div>
+      <div class="trash" id="trash" data-node="trash" aria-label="Dropped packets">
+        <div class="lid"></div>
+        <div class="bin"></div>
+        <span>dropped</span>
+      </div>
+    </section>
+    <aside class="log">
+      <h2>Packets</h2>
+      <ol id="log"></ol>
+    </aside>
+  </main>
+
+  <main id="setup" class="view">
+    <form id="setup-form" class="setup">
+      <section>
+        <h2>Charger</h2>
+        <label>Charge point ID <input name="cpid" autocomplete="off"></label>
+        <label>Listen port <input name="listenPort" type="number" min="1" max="65535"></label>
+      </section>
+      <section>
+        <h2>Primary</h2>
+        <label>Kind
+          <select name="primaryKind">
+            <option value="dummy">dummy-csms (no control)</option>
+            <option value="custom">Custom URL</option>
+          </select>
+        </label>
+        <label>URL <input name="primaryUrl" placeholder="ws://evcc:8887/"></label>
+      </section>
+      <section>
+        <h2>Secondaries</h2>
+        <div id="seconds"></div>
+        <button type="button" id="add-secondary">Add backend</button>
+      </section>
+      <p class="hint">Allowed commands apply immediately and go through the proxy to the charger. Restart the stack from Portainer after changing URLs.</p>
+      <button type="submit">Save</button>
+      <p id="save-msg" class="msg" hidden></p>
+    </form>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>

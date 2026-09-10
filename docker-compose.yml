@@ -1,0 +1,211 @@
+# ocpp-fanout — Joulo splitter + dummy primary + vendor shims + web UI
+#
+#   cp .env.example .env   # set CHARGE_POINT_ID and backend URLs
+#   docker compose up -d --build
+#
+# Wallbox:  ws://<this-host>:${PROXY_PORT:-9100}/<CHARGE_POINT_ID>
+# UI:       http://<this-host>:${UI_PORT:-8088}/
+
+name: ocpp-fanout
+
+networks:
+  ocpp:
+
+volumes:
+  ui-data:
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-shim: &shim
+  image: ocpp-fanout-shim:local
+  build: ./everhome-shim
+  restart: unless-stopped
+  networks: [ocpp]
+  logging: *default-logging
+
+services:
+  dummy-csms:
+    image: ocpp-fanout-dummy:local
+    build: ./dummy-csms
+    restart: unless-stopped
+    environment:
+      DUMMY_PORT: ${DUMMY_PORT:-9001}
+      DUMMY_HEARTBEAT_INTERVAL: ${DUMMY_HEARTBEAT_INTERVAL:-300}
+      CHARGE_POINT_ID: ${CHARGE_POINT_ID:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      TZ: ${TZ:-UTC}
+      UI_EVENT_URL: http://ui:8080/internal/event
+    networks: [ocpp]
+    expose: ["9001"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9001/health', timeout=3)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: *default-logging
+
+  everhome-shim:
+    <<: *shim
+    environment:
+      SHIM_PORT: "9003"
+      SHIM_NAME: everhome-shim
+      UPSTREAM_OCPP_URL: ${EVERHOME_OCPP_URL:-}
+      APPEND_CPID: ${EVERHOME_APPEND_CPID:-false}
+      CHARGE_POINT_ID: ${CHARGE_POINT_ID:-}
+      INJECT_URL: http://dummy-csms:9001/inject
+      UI_CONFIG_URL: http://ui:8080/api/config
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      TZ: ${TZ:-UTC}
+      UI_EVENT_URL: http://ui:8080/internal/event
+    expose: ["9003"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9003/health', timeout=3)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  enphase-shim:
+    <<: *shim
+    environment:
+      SHIM_PORT: "9004"
+      SHIM_NAME: enphase-shim
+      UPSTREAM_OCPP_URL: ${ENPHASE_OCPP_URL:-}
+      APPEND_CPID: ${ENPHASE_APPEND_CPID:-true}
+      CHARGE_POINT_ID: ${CHARGE_POINT_ID:-}
+      INJECT_URL: http://dummy-csms:9001/inject
+      UI_CONFIG_URL: http://ui:8080/api/config
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      TZ: ${TZ:-UTC}
+      UI_EVENT_URL: http://ui:8080/internal/event
+    expose: ["9004"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9004/health', timeout=3)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  monta-shim:
+    <<: *shim
+    environment:
+      SHIM_PORT: "9005"
+      SHIM_NAME: monta-shim
+      UPSTREAM_OCPP_URL: ${MONTA_OCPP_URL:-}
+      APPEND_CPID: ${MONTA_APPEND_CPID:-false}
+      CHARGE_POINT_ID: ${CHARGE_POINT_ID:-}
+      INJECT_URL: http://dummy-csms:9001/inject
+      UI_CONFIG_URL: http://ui:8080/api/config
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      TZ: ${TZ:-UTC}
+      UI_EVENT_URL: http://ui:8080/internal/event
+    expose: ["9005"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9005/health', timeout=3)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  ocpp-proxy:
+    image: ghcr.io/joulo-nl/joulo-ocpp-proxy:main
+    restart: unless-stopped
+    depends_on:
+      dummy-csms:
+        condition: service_healthy
+      everhome-shim:
+        condition: service_healthy
+      enphase-shim:
+        condition: service_healthy
+      monta-shim:
+        condition: service_healthy
+    environment:
+      PORT: ${PROXY_LISTEN_PORT:-9000}
+      PRIMARY_CSMS_URL: ${DUMMY_CSMS_URL:-ws://dummy-csms:9001}
+      PRIMARY_CSMS_APPEND_CHARGE_POINT_ID: ${PRIMARY_CSMS_APPEND_CHARGE_POINT_ID:-true}
+      CHARGE_POINT_ID: ${CHARGE_POINT_ID:-}
+      ENPHASE_OCPP_URL: ${ENPHASE_OCPP_URL:-}
+      ENPHASE_APPEND_CPID: ${ENPHASE_APPEND_CPID:-true}
+      EVERHOME_OCPP_URL: ${EVERHOME_OCPP_URL:-}
+      EVERHOME_APPEND_CPID: ${EVERHOME_APPEND_CPID:-false}
+      MONTA_OCPP_URL: ${MONTA_OCPP_URL:-}
+      MONTA_APPEND_CPID: ${MONTA_APPEND_CPID:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - ./proxy/entrypoint.sh:/entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    ports:
+      - "${PROXY_PORT:-9100}:${PROXY_LISTEN_PORT:-9000}"
+    networks: [ocpp]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('net').connect(process.env.PORT||9000,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging: *default-logging
+
+  ui:
+    image: ocpp-fanout-ui:local
+    build: ./ui
+    restart: unless-stopped
+    environment:
+      UI_DATA_DIR: /data
+      TZ: ${TZ:-UTC}
+      EVERHOME_OCPP_URL: ${EVERHOME_OCPP_URL:-}
+      ENPHASE_OCPP_URL: ${ENPHASE_OCPP_URL:-}
+      MONTA_OCPP_URL: ${MONTA_OCPP_URL:-}
+    volumes:
+      - ui-data:/data
+    ports:
+      - "${UI_PORT:-8088}:8080"
+    networks: [ocpp]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/status', timeout=3)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: *default-logging

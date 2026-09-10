@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: dummy-csms tests
+        working-directory: dummy-csms
+        run: pip install -r requirements-dev.txt && pytest -q
+      - name: shim tests
+        working-directory: everhome-shim
+        run: pip install -r requirements-dev.txt && pytest -q
+      - name: ui tests
+        working-directory: ui
+        run: pip install pytest && pytest -q
+      - name: compose file
+        run: docker compose --env-file .env.example config --quiet

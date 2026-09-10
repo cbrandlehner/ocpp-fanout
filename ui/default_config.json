@@ -1,0 +1,45 @@
+{
+  "charger": {
+    "id": "gemini",
+    "label": "go-e Gemini",
+    "cpid": "",
+    "listenPort": 9100
+  },
+  "primary": {
+    "kind": "dummy",
+    "label": "dummy-csms",
+    "url": ""
+  },
+  "secondaries": [
+    {
+      "id": "enphase",
+      "kind": "enphase",
+      "label": "Enphase IQ Energy Router",
+      "url": "",
+      "appendCpid": true,
+      "profile": "answer",
+      "enabled": true,
+      "allowedCommands": []
+    },
+    {
+      "id": "everhome",
+      "kind": "everhome",
+      "label": "EverHome",
+      "url": "",
+      "appendCpid": false,
+      "profile": "lax-ws",
+      "enabled": true,
+      "allowedCommands": []
+    },
+    {
+      "id": "monta",
+      "kind": "monta",
+      "label": "Monta",
+      "url": "",
+      "appendCpid": false,
+      "profile": "answer",
+      "enabled": true,
+      "allowedCommands": []
+    }
+  ]
+}

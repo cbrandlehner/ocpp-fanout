@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 180">
+  <rect width="240" height="180" rx="24" fill="#0b1f17"/>
+  <circle cx="120" cy="72" r="36" fill="#18c37e"/>
+  <path d="M104 72h32M120 56v32" stroke="#0b1f17" stroke-width="8" stroke-linecap="round"/>
+  <text x="120" y="140" text-anchor="middle" fill="#e8fff4" font-family="IBM Plex Sans, Helvetica, sans-serif" font-size="28" font-weight="700">Monta</text>
+</svg>
