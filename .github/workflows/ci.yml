@@ -15,13 +15,13 @@ jobs:
           python-version: "3.12"
       - name: dummy-csms tests
         working-directory: dummy-csms
-        run: pip install -r requirements-dev.txt && pytest -q
+        run: pip install -r requirements-dev.txt && PYTHONPATH=. pytest -q
       - name: shim tests
         working-directory: everhome-shim
-        run: pip install -r requirements-dev.txt && pytest -q
+        run: pip install -r requirements-dev.txt && PYTHONPATH=. pytest -q
       - name: ui tests
         working-directory: ui
-        run: pip install pytest && pytest -q
+        run: pip install pytest && PYTHONPATH=. pytest -q
       - name: compose files
         run: |
           docker compose --env-file .env.example config --quiet
