@@ -133,14 +133,16 @@ sequenceDiagram
 
 Die Box muss irgendwohin einen Primary haben, der CallResults liefert
 (`[3, id, payload]`), sonst gilt sie als offline. dummy-csms tut das. Eigene
-Steuerung sendet er nicht. `POST /inject` ist der einzige Weg, über Joulo einen
-CSMS-Call zur Box zu schicken.
+Ladesteuerung sendet er nicht. `POST /inject` ist der einzige Weg, über Joulo
+einen CSMS-Call zur Box zu schicken. Unter Setup kann ein
+StatusNotification-Poll (Primary-`TriggerMessage`) mit getrennten Intervallen
+für Laden und Idle laufen.
 
 ### Web-UI
 
 `http://<host>:8088/` — Live-Datenfluss (Dark / Light), Setup (Backends +
-Allowlist), Theme. Erlaubte Befehle gelten sofort. Stack nur nach URL-Änderung
-neu starten.
+Allowlist + Status-Intervalle), Theme. Erlaubte Befehle und Status-Intervalle
+gelten sofort. Stack nur nach URL-Änderung neu starten.
 
 Beim Laden zeigt die EV-Karte Phasen, Ampere je Phase und kW aus den
 MeterValues (`Current.Import` L1/L2/L3 und `Power.Active.Import`).
@@ -191,8 +193,10 @@ docker compose -f docker-compose.simple.yml up -d --build
 Stack-Umgebung einfügen (oder dieses Repository einbinden). Compose **baut**
 `dummy-csms`, `everhome-shim` und `ui` lokal; Joulo kommt von `ghcr.io`.
 
-Danach in der UI unter Setup URLs und Allowlist prüfen. Erlaubte Befehle gelten
-sofort. Stack nur neu starten, wenn sich Backend-URLs in `.env` geändert haben.
+Danach in der UI unter Setup URLs, Allowlist und die StatusNotification-Intervalle
+prüfen (Standard 60 s beim Laden, 7 s im Idle). Erlaubte Befehle und diese
+Intervalle gelten sofort. Stack nur neu starten, wenn sich Backend-URLs in
+`.env` geändert haben.
 
 OCPP-Calls inkl. Payload liegen im Volume `ui-data`:
 `ocpp-commands-YYYY-MM-DD.jsonl` (heute + gestern, max. 80 MB pro Tag).
@@ -205,7 +209,7 @@ OCPP-Calls inkl. Payload liegen im Volume `ui-data`:
 |---------|----------------|
 | Vendor-App leer / offline | Shim muss Calls beantworten, die Joulo verwerfen würde. `docker compose logs`. |
 | EverHome offline | Shim nötig (kein `ocpp1.6`-Subprotokoll). |
-| Enlighten ohne Live-Daten | In Setup `TriggerMessage:StatusNotification` erlauben. |
+| Enlighten ohne Live-Daten | dummy-csms pollt `StatusNotification` selbst. Enphase-`TriggerMessage` nicht auf die Allowlist, außer der Router soll die Box zusätzlich anstoßen. |
 | Enphase-Ampere springt | Router auf **Monitor**; `SetChargingProfile` nicht auf die Allowlist. |
 | Wallbox OCPP-offline | Dummy muss CallResults liefern. |
 | Monta live OK, Ladeprotokoll leer | Braucht `StartTransaction` mit einem idTag, den Monta akzeptiert. AutoStart im Hub nur bei Private und wenn die EVSE `RemoteStart` kann. |

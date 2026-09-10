@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from command_log import CommandLog
 from labels import apply_charger_state, label_for
+from setup_defaults import hydrate_charger
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
@@ -109,6 +110,8 @@ def load_config() -> dict[str, Any]:
     else:
         cfg = json.loads(json.dumps(DEFAULT_CONFIG))
     cfg, filled = hydrate_urls(cfg)
+    if hydrate_charger(cfg):
+        filled = True
     if filled or not CONFIG_PATH.exists():
         save_config(cfg)
     return cfg
@@ -116,6 +119,7 @@ def load_config() -> dict[str, Any]:
 
 def save_config(cfg: dict[str, Any]) -> dict[str, Any]:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    hydrate_charger(cfg)
     CONFIG_PATH.write_text(json.dumps(cfg, indent=2) + "\n")
     return cfg
 

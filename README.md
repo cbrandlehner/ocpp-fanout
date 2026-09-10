@@ -138,15 +138,16 @@ sequenceDiagram
 ### Dummy as primary
 
 The charger needs a primary that returns CallResults (`[3, id, payload]`), or it
-goes offline. dummy-csms does that. It does **not** originate control itself.
+goes offline. dummy-csms does that. It does **not** originate charging control.
 `POST /inject` is the only way a shim can send a CSMS Call through Joulo to the
-box.
+box. Setup may enable a StatusNotification poll (primary `TriggerMessage`) at
+separate intervals for charging vs idle.
 
 ### Web UI
 
 `http://<host>:8088/` — Live packet scene (dark / light), Setup (backends +
-allowlist), Theme. Allowed commands apply immediately. Restart the stack only
-after changing URLs.
+allowlist + charger status intervals), Theme. Allowed commands and status
+intervals apply immediately. Restart the stack only after changing URLs.
 
 While charging, the EV card shows phases, A per phase, and kW from MeterValues
 (`Current.Import` L1/L2/L3 and `Power.Active.Import`).
@@ -198,9 +199,10 @@ stack environment (or point Portainer at this repository). Compose **builds**
 `dummy-csms`, `everhome-shim`, and `ui` locally; the Joulo image comes from
 `ghcr.io`.
 
-After start, open Setup in the UI to confirm URLs and the command allowlist.
-Allowed commands apply immediately. Restart the stack only after changing
-backend URLs in `.env`.
+After start, open Setup in the UI to confirm URLs, the command allowlist, and
+the StatusNotification intervals (default 60 s while charging, 7 s while idle).
+Allowed commands and those intervals apply immediately. Restart the stack only
+after changing backend URLs in `.env`.
 
 OCPP Calls including payload go to the `ui-data` volume:
 `ocpp-commands-YYYY-MM-DD.jsonl` (today + yesterday, max 80 MB per day).
@@ -213,7 +215,7 @@ Do not commit `.env`.
 |---------|-------------|
 | Vendor app empty / offline | Shim must answer Calls Joulo would drop. Check `docker compose logs`. |
 | EverHome offline | Needs the shim (no `ocpp1.6` subprotocol). |
-| Enlighten no live data | Allow `TriggerMessage:StatusNotification` in Setup. |
+| Enlighten no live data | dummy-csms already polls `StatusNotification`. Keep Enphase `TriggerMessage` off the allowlist unless you want the router to hit the box too. |
 | Enphase amps jump | Router in **Monitor** mode; keep `SetChargingProfile` off the allowlist. |
 | Charger OCPP-offline | Dummy must return CallResults. |
 | Monta live OK, empty charge log | Needs `StartTransaction` with an idTag Monta accepts. AutoStart in Monta Hub requires Private visibility and EVSE support for `RemoteStart`. |

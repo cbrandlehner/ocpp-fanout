@@ -263,6 +263,8 @@ async function loadSetup() {
   const form = $("#setup-form");
   form.cpid.value = cfg.charger?.cpid || "";
   form.listenPort.value = cfg.charger?.listenPort || 9100;
+  form.statusIntervalChargingSec.value = cfg.charger?.statusIntervalChargingSec ?? 60;
+  form.statusIntervalIdleSec.value = cfg.charger?.statusIntervalIdleSec ?? 7;
   form.primaryKind.value = cfg.primary?.kind || "dummy";
   form.primaryUrl.value = cfg.primary?.url || "";
   const box = $("#seconds");
@@ -292,14 +294,21 @@ $("#setup-form").addEventListener("submit", async (e) => {
     };
   });
   const body = {
-    charger: { id: "gemini", label: "go-e Gemini", cpid: form.cpid.value, listenPort: Number(form.listenPort.value) },
+    charger: {
+      id: "gemini",
+      label: "go-e Gemini",
+      cpid: form.cpid.value,
+      listenPort: Number(form.listenPort.value),
+      statusIntervalChargingSec: Number(form.statusIntervalChargingSec.value),
+      statusIntervalIdleSec: Number(form.statusIntervalIdleSec.value),
+    },
     primary: { kind: form.primaryKind.value, label: form.primaryKind.value, url: form.primaryUrl.value },
     secondaries,
   };
   const res = await fetch("/api/config", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const msg = $("#save-msg");
   msg.hidden = false;
-  msg.textContent = res.ok ? "Saved. Allowed commands apply immediately. Restart the stack only after changing URLs." : "Save failed.";
+  msg.textContent = res.ok ? "Saved. Allowed commands and status intervals apply immediately. Restart the stack only after changing URLs." : "Save failed.";
 });
 
 connectWs();

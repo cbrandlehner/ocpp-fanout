@@ -190,6 +190,25 @@ def test_note_csms_start_result_sets_txn():
     assert STATE["pending_start"] is None
 
 
+def test_should_forward_charge_point_calls_only():
+    from app import should_forward_to_upstream
+
+    assert should_forward_to_upstream(
+        encode_call("1", "StatusNotification", {"status": "Available"})
+    )
+    assert should_forward_to_upstream(
+        encode_call("2", "MeterValues", {"connectorId": 1, "meterValue": []})
+    )
+    assert should_forward_to_upstream(encode_call_result("3", {"status": "Accepted"}))
+    assert not should_forward_to_upstream(
+        encode_call("4", "TriggerMessage", {"requestedMessage": "StatusNotification"})
+    )
+    assert not should_forward_to_upstream(
+        encode_call("5", "ChangeConfiguration", {"key": "x", "value": "1"})
+    )
+    assert not should_forward_to_upstream(encode_call("6", "GetConfiguration", {}))
+
+
 def test_resolve_upstream_appends_cpid(monkeypatch):
     import app as appmod
 

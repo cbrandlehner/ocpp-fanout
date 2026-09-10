@@ -90,3 +90,47 @@ def test_inject_without_charger():
     result = asyncio.run(csms.inject_call("TriggerMessage", {"requestedMessage": "StatusNotification"}))
     assert result["ok"] is False
     assert result["error"] == "charger not connected"
+
+
+def test_status_poll_interval_charging_vs_idle():
+    from app import status_poll_interval
+
+    assert status_poll_interval("Charging", 60, 7) == 60
+    assert status_poll_interval("SuspendedEVSE", 60, 7) == 7
+    assert status_poll_interval("Available", 60, 7) == 7
+    assert status_poll_interval(None, 60, 7) == 7
+
+
+def test_status_poll_interval_zero_disables():
+    from app import status_poll_interval
+
+    assert status_poll_interval("Charging", 0, 7) == 0
+    assert status_poll_interval("Available", 60, 0) == 0
+
+
+def test_parse_status_intervals_defaults_and_clamp():
+    from app import parse_status_intervals
+
+    assert parse_status_intervals({}) == (60, 7)
+    assert parse_status_intervals(None) == (60, 7)
+    assert parse_status_intervals(
+        {"statusIntervalChargingSec": 90, "statusIntervalIdleSec": 15}
+    ) == (90, 15)
+    assert parse_status_intervals(
+        {"statusIntervalChargingSec": -3, "statusIntervalIdleSec": "nope"}
+    ) == (0, 7)
+
+
+def test_derive_ui_config_url_from_event_url():
+    from app import derive_ui_config_url
+
+    assert derive_ui_config_url("http://ui:8080/internal/event") == "http://ui:8080/api/config"
+    assert derive_ui_config_url("") == ""
+
+
+def test_charger_status_from_status_notification():
+    from app import charger_status_from_call
+
+    assert charger_status_from_call("StatusNotification", {"status": "Charging"}) == "Charging"
+    assert charger_status_from_call("MeterValues", {"status": "Charging"}) is None
+    assert charger_status_from_call("StatusNotification", {}) is None

@@ -1,9 +1,10 @@
 """Minimal OCPP 1.6J Central System.
 
 Accepts Charge Point connections (via joulo) and answers Core calls.
-Does not originate control itself. POST /inject lets a shim send an
+Does not originate charging control. POST /inject lets a shim send an
 allowed CSMS Call through this primary link so joulo forwards it to
-the wallbox.
+the wallbox. Setup may also enable a StatusNotification poll
+(TriggerMessage) at charging vs idle intervals.
 """
 
 from __future__ import annotations
@@ -16,9 +17,9 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from aiohttp import WSMsgType, web
+from aiohttp import ClientSession, ClientTimeout, WSMsgType, web
 
-from ui_events import emit_soon
+from ui_events import UI_EVENT_URL, emit_soon
 from ocpp_codec import (
     CALL,
     CALLERROR,
@@ -34,6 +35,9 @@ LOG_LEVEL = os.environ.get("LOG_LEVEL", "info").upper()
 LISTEN_HOST = os.environ.get("DUMMY_LISTEN_HOST", "0.0.0.0")
 LISTEN_PORT = int(os.environ.get("DUMMY_PORT", "9001"))
 HEARTBEAT_INTERVAL = int(os.environ.get("DUMMY_HEARTBEAT_INTERVAL", "300"))
+DEFAULT_STATUS_INTERVAL_CHARGING_SEC = 60
+DEFAULT_STATUS_INTERVAL_IDLE_SEC = 7
+STATUS_POLL_IDLE_SLEEP_SEC = 2.0
 
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL, logging.INFO),
@@ -89,6 +93,88 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S") + "Z"
 
 
+def derive_ui_config_url(event_url: str) -> str:
+    url = (event_url or "").strip()
+    suffix = "/internal/event"
+    if url.endswith(suffix):
+        return url[: -len(suffix)] + "/api/config"
+    return ""
+
+
+def _as_interval(value: Any, default: int) -> int:
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(0, n)
+
+
+def parse_status_intervals(charger: dict[str, Any] | None) -> tuple[int, int]:
+    charger = charger or {}
+    return (
+        _as_interval(charger.get("statusIntervalChargingSec"), DEFAULT_STATUS_INTERVAL_CHARGING_SEC),
+        _as_interval(charger.get("statusIntervalIdleSec"), DEFAULT_STATUS_INTERVAL_IDLE_SEC),
+    )
+
+
+def status_poll_interval(status: str | None, charging_sec: int, idle_sec: int) -> int:
+    if status == "Charging":
+        return max(0, int(charging_sec))
+    return max(0, int(idle_sec))
+
+
+def charger_status_from_call(action: str, payload: dict[str, Any] | None) -> str | None:
+    if action != "StatusNotification":
+        return None
+    status = (payload or {}).get("status")
+    if status is None or status == "":
+        return None
+    return str(status)
+
+
+def ui_config_url() -> str:
+    return os.environ.get("UI_CONFIG_URL", "").strip() or derive_ui_config_url(UI_EVENT_URL)
+
+
+async def fetch_status_intervals() -> tuple[int, int]:
+    url = ui_config_url()
+    if not url:
+        return parse_status_intervals(None)
+    try:
+        timeout = ClientTimeout(total=1.5)
+        async with ClientSession(timeout=timeout) as session:
+            async with session.get(url) as resp:
+                cfg = await resp.json(content_type=None)
+        charger = cfg.get("charger") if isinstance(cfg, dict) else None
+        return parse_status_intervals(charger if isinstance(charger, dict) else None)
+    except Exception:  # noqa: BLE001
+        return parse_status_intervals(None)
+
+
+async def status_poll_loop() -> None:
+    """Trigger StatusNotification at the Setup interval for charging vs idle."""
+    while True:
+        charging_sec, idle_sec = await fetch_status_intervals()
+        interval = status_poll_interval(STATE.last_status, charging_sec, idle_sec)
+        if interval <= 0 or not STATE.pick_cpid():
+            await asyncio.sleep(STATUS_POLL_IDLE_SLEEP_SEC)
+            continue
+        emit_soon(
+            src="dummy",
+            dst="charger",
+            action="TriggerMessage",
+            payload={"requestedMessage": "StatusNotification"},
+            fate="forward",
+        )
+        result = await STATE.inject_call(
+            "TriggerMessage",
+            {"requestedMessage": "StatusNotification"},
+        )
+        if not result.get("ok"):
+            jlog("warn", "status poll inject failed", error=result.get("error"))
+        await asyncio.sleep(interval)
+
+
 def jlog(level: str, msg: str, **fields: Any) -> None:
     payload = {"time": utc_now_iso(), "level": level, "tag": "dummy-csms", "msg": msg}
     payload.update(fields)
@@ -106,6 +192,7 @@ class DummyCsms:
         self.send_locks: dict[str, asyncio.Lock] = {}
         self.pending: dict[str, asyncio.Future] = {}
         self.started_at = utc_now_iso()
+        self.last_status: str | None = None
 
     def pick_cpid(self, requested: str | None = None) -> str | None:
         live = [cp for cp, ws in self.sockets.items() if not ws.closed]
@@ -334,6 +421,9 @@ async def _on_text(ws: web.WebSocketResponse, cp_id: str, raw: str) -> None:
     unique_id = parsed["uniqueId"]
     payload = parsed.get("payload") or {}
     STATE.connections[cp_id]["lastAction"] = action
+    status = charger_status_from_call(action, payload)
+    if status:
+        STATE.last_status = status
     jlog(
         "debug",
         "call",
@@ -384,6 +474,7 @@ async def _main() -> None:
         interval=HEARTBEAT_INTERVAL,
     )
     stop = asyncio.Event()
+    poll_task = asyncio.create_task(status_poll_loop())
 
     def _stop(*_: Any) -> None:
         stop.set()
@@ -395,6 +486,7 @@ async def _main() -> None:
         except NotImplementedError:
             pass
     await stop.wait()
+    poll_task.cancel()
     await runner.cleanup()
 
 

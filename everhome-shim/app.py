@@ -29,6 +29,38 @@ from aiohttp import ClientSession, ClientTimeout, WSMsgType, web
 from ocpp_codec import CALL, CALLERROR, CALLRESULT, decode, encode_call, encode_call_result
 from ui_events import emit_soon
 
+CHARGE_POINT_CALLS = frozenset(
+    {
+        "Authorize",
+        "BootNotification",
+        "DataTransfer",
+        "DiagnosticsStatusNotification",
+        "FirmwareStatusNotification",
+        "Heartbeat",
+        "LogStatusNotification",
+        "MeterValues",
+        "SecurityEventNotification",
+        "SignCertificate",
+        "SignedFirmwareStatusNotification",
+        "StartTransaction",
+        "StatusNotification",
+        "StopTransaction",
+    }
+)
+
+
+def should_forward_to_upstream(raw: str) -> bool:
+    """Drop CSMS→CP Calls that Joulo leaked onto the secondary link."""
+    try:
+        parsed = decode(raw)
+    except Exception:  # noqa: BLE001
+        return True
+    if parsed.get("messageType") != CALL:
+        return True
+    action = parsed.get("action") or ""
+    return action in CHARGE_POINT_CALLS
+
+
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "info").upper()
 LISTEN_HOST = os.environ.get("SHIM_LISTEN_HOST", "0.0.0.0")
 LISTEN_PORT = int(os.environ.get("SHIM_PORT", "9003"))
@@ -545,29 +577,35 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
                     raw = msg.data if isinstance(msg.data, str) else msg.data.decode("utf-8")
                     STATE["lastForward"] = utc_now_iso()
                     outgoing = raw
+                    forward = should_forward_to_upstream(raw)
                     try:
                         parsed = decode(raw)
                         if parsed["messageType"] == CALL:
                             action = parsed.get("action") or ""
                             payload = parsed.get("payload") or {}
-                            cache_cp_call(action, payload)
-                            emit_soon(src="charger", dst=backend_node(), action=action, payload=payload, fate="forward", unique_id=parsed.get("uniqueId"))
-                            if action == "StartTransaction":
-                                loop = asyncio.get_running_loop()
-                                STATE["pending_start"] = parsed["uniqueId"]
-                                STATE["start_wait"] = loop.create_future()
-                            elif action in {"MeterValues", "StopTransaction"}:
-                                if payload.get("transactionId") is not None:
-                                    STATE["cp_txn"] = payload.get("transactionId")
-                                if STATE.get("csms_txn") is None:
-                                    await ensure_csms_transaction(payload if action == "MeterValues" else STATE["lastCpCalls"].get("MeterValues") or payload)
-                                rewritten = rewrite_txn_payload(action, payload)
-                                if rewritten is not payload and rewritten.get("transactionId") != payload.get("transactionId"):
-                                    outgoing = encode_call(parsed["uniqueId"], action, rewritten)
-                            if action == "StopTransaction":
-                                clear_txn_map()
+                            if not forward:
+                                jlog("debug", "drop leaked CSMS call", action=action)
+                            else:
+                                cache_cp_call(action, payload)
+                                emit_soon(src="charger", dst=backend_node(), action=action, payload=payload, fate="forward", unique_id=parsed.get("uniqueId"))
+                                if action == "StartTransaction":
+                                    loop = asyncio.get_running_loop()
+                                    STATE["pending_start"] = parsed["uniqueId"]
+                                    STATE["start_wait"] = loop.create_future()
+                                elif action in {"MeterValues", "StopTransaction"}:
+                                    if payload.get("transactionId") is not None:
+                                        STATE["cp_txn"] = payload.get("transactionId")
+                                    if STATE.get("csms_txn") is None:
+                                        await ensure_csms_transaction(payload if action == "MeterValues" else STATE["lastCpCalls"].get("MeterValues") or payload)
+                                    rewritten = rewrite_txn_payload(action, payload)
+                                    if rewritten is not payload and rewritten.get("transactionId") != payload.get("transactionId"):
+                                        outgoing = encode_call(parsed["uniqueId"], action, rewritten)
+                                if action == "StopTransaction":
+                                    clear_txn_map()
                     except Exception as exc:  # noqa: BLE001
                         jlog("debug", "forward rewrite skipped", error=str(exc))
+                    if not forward:
+                        continue
                     jlog("debug", "forward → upstream", preview=outgoing[:180])
                     if not upstream.closed:
                         await upstream.send_str(outgoing)

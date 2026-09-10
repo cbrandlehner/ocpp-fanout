@@ -110,6 +110,13 @@
         <h2>Charger</h2>
         <label>Charge point ID <input name="cpid" autocomplete="off"></label>
         <label>Listen port <input name="listenPort" type="number" min="1" max="65535"></label>
+        <label>StatusNotification interval when charging (s)
+          <input name="statusIntervalChargingSec" type="number" min="0" max="3600">
+        </label>
+        <label>StatusNotification interval while idle (s)
+          <input name="statusIntervalIdleSec" type="number" min="0" max="3600">
+        </label>
+        <p class="hint">dummy-csms sends TriggerMessage(StatusNotification) at this interval. Charging = OCPP status Charging; idle = everything else. 0 disables that mode.</p>
       </section>
       <section>
         <h2>Primary</h2>

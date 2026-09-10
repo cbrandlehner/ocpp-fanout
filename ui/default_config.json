@@ -3,7 +3,9 @@
     "id": "gemini",
     "label": "go-e Gemini",
     "cpid": "",
-    "listenPort": 9100
+    "listenPort": 9100,
+    "statusIntervalChargingSec": 60,
+    "statusIntervalIdleSec": 7
   },
   "primary": {
     "kind": "dummy",
