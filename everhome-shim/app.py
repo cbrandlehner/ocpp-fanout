@@ -50,13 +50,19 @@ CHARGE_POINT_CALLS = frozenset(
 
 
 def should_forward_to_upstream(raw: str) -> bool:
-    """Drop CSMS→CP Calls that Joulo leaked onto the secondary link."""
+    """Forward charge-point Calls only.
+
+    Joulo also mirrors CallResults for calls the dummy injected under its
+    own unique id. The upstream CSMS did not send those calls and answers
+    the mirror with CallError InternalError. Inject results go back on the
+    CSMS unique id from this shim.
+    """
     try:
         parsed = decode(raw)
     except Exception:  # noqa: BLE001
         return True
     if parsed.get("messageType") != CALL:
-        return True
+        return False
     action = parsed.get("action") or ""
     return action in CHARGE_POINT_CALLS
 
@@ -302,6 +308,8 @@ def resolve_upstream(
 
 def patch_get_configuration(payload: dict[str, Any]) -> dict[str, Any]:
     """Advertise RemoteStart support so Monta AutoStart is not 'unsupported'."""
+    if "enphase" in SHIM_NAME.lower():
+        return payload
     keys = [dict(item) for item in payload.get("configurationKey") or []]
     found = False
     for item in keys:
@@ -406,6 +414,7 @@ STATE: dict[str, Any] = {
     "csms_txn": None,
     "pending_start": None,
     "start_wait": None,
+    "start_rejected": False,
 }
 
 CACHE_ACTIONS = REPLAYABLE | {"StartTransaction", "StopTransaction", "Authorize"}
@@ -440,18 +449,83 @@ def synthesize_start_transaction(meter_payload: dict[str, Any]) -> dict[str, Any
     }
 
 
+def csms_transaction_id(payload: dict[str, Any] | None) -> int | None:
+    """Transaction id Enphase accepted. -1 and Invalid are not a session."""
+    payload = payload or {}
+    info = payload.get("idTagInfo")
+    if isinstance(info, dict):
+        status = info.get("status")
+        if status not in (None, "", "Accepted"):
+            return None
+    txn = payload.get("transactionId")
+    if isinstance(txn, bool) or not isinstance(txn, int) or txn <= 0:
+        return None
+    return txn
+
+
 def note_csms_start_result(unique_id: str, payload: dict[str, Any] | None) -> None:
     if unique_id != STATE.get("pending_start"):
         return
     payload = payload or {}
-    txn = payload.get("transactionId")
-    jlog("info", "CSMS StartTransaction result", uniqueId=unique_id, transactionId=txn, payload=payload)
+    txn = csms_transaction_id(payload)
+    jlog(
+        "info",
+        "CSMS StartTransaction result",
+        uniqueId=unique_id,
+        transactionId=payload.get("transactionId"),
+        accepted=txn,
+        payload=payload,
+    )
     if txn is not None:
         STATE["csms_txn"] = txn
+        STATE["start_rejected"] = False
+    else:
+        STATE["start_rejected"] = True
     wait = STATE.get("start_wait")
     if wait is not None and not wait.done():
         wait.set_result(True)
     STATE["pending_start"] = None
+
+
+def settle_remote_stop(
+    request: dict[str, Any] | None,
+    inject: dict[str, Any] | None,
+    cp_txn: Any,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Close a CSMS transaction the charger has already rejected.
+
+    A rejection of the charger's live transaction is returned unchanged.
+    A rejection of any other id gets RemoteStop Accepted plus StopTransaction,
+    which is what makes the CSMS drop the session.
+    """
+    inject = inject or {}
+    result = dict(inject.get("payload") or {})
+    if result.get("status") != "Rejected":
+        return result, None
+    request = request or {}
+    requested = request.get("transactionId")
+    if requested is None:
+        return result, None
+    sent = inject.get("sentTransactionId", requested)
+    if _same_txn(sent, cp_txn):
+        return result, None
+    meter = STATE["lastCpCalls"].get("MeterValues") or {}
+    stop = {
+        "transactionId": requested,
+        "meterStop": _energy_wh(meter),
+        "timestamp": utc_now_iso(),
+        "reason": "Remote",
+    }
+    return {"status": "Accepted"}, stop
+
+
+def _same_txn(left: Any, right: Any) -> bool:
+    if left is None or right is None:
+        return False
+    try:
+        return int(left) == int(right)
+    except (TypeError, ValueError):
+        return left == right
 
 
 def rewrite_txn_payload(action: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -464,6 +538,31 @@ def rewrite_txn_payload(action: str, payload: dict[str, Any]) -> dict[str, Any]:
     out = dict(payload)
     out["transactionId"] = STATE["csms_txn"]
     return out
+
+
+def remember_call(unique_id: str | None, action: str) -> None:
+    if not unique_id:
+        return
+    book: dict[str, str] = STATE.setdefault("call_actions", {})
+    book[str(unique_id)] = action
+    if len(book) > 400:
+        for key in list(book)[:100]:
+            book.pop(key, None)
+
+
+def recall_call(unique_id: str | None) -> str:
+    if not unique_id:
+        return ""
+    book: dict[str, str] = STATE.setdefault("call_actions", {})
+    return book.pop(str(unique_id), "")
+
+
+def error_body(parsed: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "errorCode": parsed.get("errorCode") or "",
+        "errorDescription": parsed.get("errorDescription") or "",
+        "errorDetails": parsed.get("errorDetails") or {},
+    }
 
 
 def clear_txn_map() -> None:
@@ -540,7 +639,7 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
         jlog("info", "upstream connected", negotiated=upstream.protocol, url=upstream_url)
 
         async def ensure_csms_transaction(meter_payload: dict[str, Any]) -> None:
-            if STATE.get("csms_txn") is not None:
+            if STATE.get("csms_txn") is not None or STATE.get("start_rejected"):
                 return
             wait = STATE.get("start_wait")
             if wait is not None and not wait.done():
@@ -557,6 +656,7 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
             STATE["cp_txn"] = meter_payload.get("transactionId")
             start_payload = synthesize_start_transaction(meter_payload)
             jlog("info", "replay StartTransaction to csms", transactionId=STATE["cp_txn"])
+            remember_call(uid, "StartTransaction")
             emit_soon(
                 src="charger",
                 dst=backend_node(),
@@ -564,6 +664,7 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
                 payload=start_payload,
                 fate="forward",
                 unique_id=uid,
+                hop="upstream",
             )
             await upstream.send_str(encode_call(uid, "StartTransaction", start_payload))
             try:
@@ -585,11 +686,22 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
                             payload = parsed.get("payload") or {}
                             if not forward:
                                 jlog("debug", "drop leaked CSMS call", action=action)
+                                emit_soon(
+                                    src="charger",
+                                    dst=backend_node(),
+                                    action=action,
+                                    payload=payload,
+                                    fate="drop",
+                                    unique_id=parsed.get("uniqueId"),
+                                    hop="upstream",
+                                )
                             else:
                                 cache_cp_call(action, payload)
-                                emit_soon(src="charger", dst=backend_node(), action=action, payload=payload, fate="forward", unique_id=parsed.get("uniqueId"))
+                                wire = payload
+                                received = None
                                 if action == "StartTransaction":
                                     loop = asyncio.get_running_loop()
+                                    STATE["start_rejected"] = False
                                     STATE["pending_start"] = parsed["uniqueId"]
                                     STATE["start_wait"] = loop.create_future()
                                 elif action in {"MeterValues", "StopTransaction"}:
@@ -600,8 +712,43 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
                                     rewritten = rewrite_txn_payload(action, payload)
                                     if rewritten is not payload and rewritten.get("transactionId") != payload.get("transactionId"):
                                         outgoing = encode_call(parsed["uniqueId"], action, rewritten)
+                                        wire = rewritten
+                                        received = payload
                                 if action == "StopTransaction":
                                     clear_txn_map()
+                                remember_call(parsed.get("uniqueId"), action)
+                                emit_soon(
+                                    src="charger",
+                                    dst=backend_node(),
+                                    action=action,
+                                    payload=wire,
+                                    received=received,
+                                    fate="forward",
+                                    unique_id=parsed.get("uniqueId"),
+                                    hop="upstream",
+                                )
+                        elif parsed["messageType"] == CALLRESULT:
+                            emit_soon(
+                                src="charger",
+                                dst=backend_node(),
+                                action=recall_call(parsed.get("uniqueId")),
+                                payload=parsed.get("payload") or {},
+                                fate="drop",
+                                unique_id=parsed.get("uniqueId"),
+                                message_type="CallResult",
+                                hop="upstream",
+                            )
+                        elif parsed["messageType"] == CALLERROR:
+                            emit_soon(
+                                src="charger",
+                                dst=backend_node(),
+                                action=recall_call(parsed.get("uniqueId")),
+                                payload=error_body(parsed),
+                                fate="drop",
+                                unique_id=parsed.get("uniqueId"),
+                                message_type="CallError",
+                                hop="upstream",
+                            )
                     except Exception as exc:  # noqa: BLE001
                         jlog("debug", "forward rewrite skipped", error=str(exc))
                     if not forward:
@@ -639,13 +786,49 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
                             payload=payload,
                             fate="forward",
                             unique_id=unique_id,
+                            hop="upstream",
                         )
                         injected = await inject_to_charger(action, payload)
                         if injected.get("ok"):
                             result_payload = injected.get("payload") or {}
+                            stop_body = None
                             if action == "GetConfiguration":
                                 result_payload = patch_get_configuration(result_payload)
+                            elif action == "RemoteStopTransaction":
+                                result_payload, stop_body = settle_remote_stop(
+                                    payload, injected, STATE.get("cp_txn")
+                                )
                             await upstream.send_str(encode_call_result(unique_id, result_payload))
+                            emit_soon(
+                                src="charger",
+                                dst=backend_node(),
+                                action=action,
+                                payload=result_payload,
+                                fate="forward",
+                                unique_id=unique_id,
+                                message_type="CallResult",
+                                hop="upstream",
+                            )
+                            if stop_body is not None:
+                                stop_id = str(uuid.uuid4())
+                                remember_call(stop_id, "StopTransaction")
+                                jlog(
+                                    "info",
+                                    "close stale CSMS transaction",
+                                    transactionId=stop_body.get("transactionId"),
+                                )
+                                emit_soon(
+                                    src="charger",
+                                    dst=backend_node(),
+                                    action="StopTransaction",
+                                    payload=stop_body,
+                                    fate="forward",
+                                    unique_id=stop_id,
+                                    hop="upstream",
+                                )
+                                await upstream.send_str(
+                                    encode_call(stop_id, "StopTransaction", stop_body)
+                                )
                             continue
                         jlog(
                             "warn",
@@ -654,6 +837,7 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
                             error=injected.get("error"),
                         )
                     jlog("info", "csms call (answered locally)", action=action)
+                    answered = reply_to_csms_call(action, payload, STATE["config"])
                     emit_soon(
                         src=backend_node(),
                         dst="charger",
@@ -661,12 +845,18 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
                         payload=payload,
                         fate="drop",
                         unique_id=unique_id,
+                        hop="upstream",
                     )
-                    await upstream.send_str(
-                        encode_call_result(
-                            unique_id,
-                            reply_to_csms_call(action, payload, STATE["config"]),
-                        )
+                    await upstream.send_str(encode_call_result(unique_id, answered))
+                    emit_soon(
+                        src="charger",
+                        dst=backend_node(),
+                        action=action,
+                        payload=answered,
+                        fate="forward",
+                        unique_id=unique_id,
+                        message_type="CallResult",
+                        hop="upstream",
                     )
                     if action == "TriggerMessage":
                         requested = str(payload.get("requestedMessage") or "")
@@ -674,16 +864,46 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
                         if replay is not None:
                             r_action, r_payload = replay
                             STATE["lastReplay"] = r_action
+                            replay_id = str(uuid.uuid4())
+                            remember_call(replay_id, r_action)
                             jlog("info", "replay to csms", action=r_action)
-                            await upstream.send_str(
-                                encode_call(str(uuid.uuid4()), r_action, r_payload)
+                            emit_soon(
+                                src="charger",
+                                dst=backend_node(),
+                                action=r_action,
+                                payload=r_payload,
+                                fate="forward",
+                                unique_id=replay_id,
+                                hop="upstream",
                             )
+                            await upstream.send_str(encode_call(replay_id, r_action, r_payload))
                 elif parsed["messageType"] == CALLRESULT:
-                    note_csms_start_result(parsed["uniqueId"], parsed.get("payload") or {})
-                    jlog("debug", "upstream CallResult dropped", uniqueId=parsed["uniqueId"])
+                    result_payload = parsed.get("payload") or {}
+                    note_csms_start_result(parsed["uniqueId"], result_payload)
+                    jlog("debug", "upstream CallResult", uniqueId=parsed["uniqueId"])
+                    emit_soon(
+                        src=backend_node(),
+                        dst="charger",
+                        action=recall_call(parsed.get("uniqueId")),
+                        payload=result_payload,
+                        fate="forward",
+                        unique_id=parsed.get("uniqueId"),
+                        message_type="CallResult",
+                        hop="upstream",
+                    )
                 elif parsed["messageType"] == CALLERROR:
                     note_csms_start_result(parsed["uniqueId"], {})
-                    jlog("warn", "upstream CallError", uniqueId=parsed["uniqueId"])
+                    jlog("warn", "upstream CallError", uniqueId=parsed["uniqueId"], errorCode=parsed.get("errorCode"))
+                    emit_soon(
+                        src=backend_node(),
+                        dst="charger",
+                        action=recall_call(parsed.get("uniqueId")),
+                        payload=error_body(parsed),
+                        fate="forward",
+                        unique_id=parsed.get("uniqueId"),
+                        message_type="CallError",
+                        hop="upstream",
+                    )
 
         done, pending = await asyncio.wait(
             [

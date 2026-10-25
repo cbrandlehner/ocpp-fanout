@@ -61,9 +61,12 @@ def decode(raw: str | bytes) -> dict[str, Any]:
         payload = data[2] if len(data) > 2 and isinstance(data[2], dict) else {}
         return {"messageType": CALLRESULT, "uniqueId": unique_id, "payload": payload}
     if msg_type == CALLERROR:
+        details = data[4] if len(data) > 4 and isinstance(data[4], dict) else {}
         return {
             "messageType": CALLERROR,
             "uniqueId": unique_id,
             "errorCode": str(data[2]) if len(data) > 2 else "",
+            "errorDescription": str(data[3]) if len(data) > 3 else "",
+            "errorDetails": details,
         }
     raise OcppDecodeError(f"unknown messageType {msg_type}")

@@ -50,7 +50,7 @@ nav button.on, .setup button[type="submit"] {
 .view { display: none; flex: 1; min-height: 0; }
 .view.on { display: flex; }
 #live { display: none; }
-#live.on { display: grid; grid-template-columns: 1fr 280px; }
+#live.on { display: grid; grid-template-columns: 1fr 320px; }
 .stage {
   position: relative;
   display: grid;
@@ -151,6 +151,11 @@ nav button.on, .setup button[type="submit"] {
   text-align: center;
 }
 .site.charging .ev-stats { display: flex; }
+.txn-id {
+  font: 600 12px/1 "IBM Plex Mono", monospace;
+  color: var(--accent);
+}
+.txn-id[hidden] { display: none; }
 .ev-body { fill: #e7ebf2; }
 .ev-glass { fill: #5b6a80; }
 .ev-wheel { fill: #1a1f28; }
@@ -199,11 +204,47 @@ nav button.on, .setup button[type="submit"] {
 .chip.amber { background: var(--amber); }
 .chip.drop { background: var(--drop); color: #fff; }
 .log {
-  border-left: 1px solid var(--line); padding: 16px; overflow: auto; background: var(--bg2);
+  border-left: 1px solid var(--line);
+  padding: 16px;
+  overflow: hidden;
+  background: var(--bg2);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.log-scroll { overflow: auto; min-height: 0; }
+.session {
+  flex: none;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.session dl { margin: 0; display: grid; gap: 7px; }
+.session div { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; }
+.session dt { color: var(--muted); }
+.session dd {
+  margin: 0;
+  text-align: right;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
 }
 .log h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
 .log ol { list-style: none; margin: 0; padding: 0; }
-.log li { font-size: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.log li {
+  font-size: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.log li .vals {
+  margin-top: 4px;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .log .drop { color: var(--drop); }
 .setup { max-width: 860px; padding: 24px; display: flex; flex-direction: column; gap: 18px; }
 .setup section { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; }

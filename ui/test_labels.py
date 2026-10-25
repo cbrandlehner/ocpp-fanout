@@ -1,4 +1,4 @@
-from labels import apply_charger_state, meter_amps, meter_phases, power_watts
+from labels import apply_charger_state, label_for, meter_amps, meter_phases, power_watts
 
 
 def _meter(samples):
@@ -24,6 +24,65 @@ def test_goe_phase_currents_and_power():
     assert state["charging"] is True
     assert state["phases"] == 2
     assert state["kw"] == 7.36
+
+
+def test_meter_values_track_transaction_and_energy():
+    payload = _meter(
+        [
+            {"measurand": "Energy.Active.Import.Register", "value": "7721241.46", "unit": "Wh"},
+            {"measurand": "Power.Active.Import", "value": "8723", "unit": "W"},
+        ]
+    )
+    payload["transactionId"] = 8
+    state = apply_charger_state({}, "MeterValues", payload)
+    assert state["transactionId"] == 8
+    assert state["energyWh"] == 7721241.46
+    assert state["watts"] == 8723
+
+
+def test_stop_closes_transaction_and_trailing_meter_does_not_reopen_it():
+    started = apply_charger_state({}, "StartTransaction", {"connectorId": 1, "idTag": "no-card"})
+    assert started["idTag"] == "no-card"
+    live = apply_charger_state(started, "MeterValues", {"transactionId": 7, "meterValue": []})
+    assert live["transactionId"] == 7
+    stopped = apply_charger_state(live, "StopTransaction", {"transactionId": 7, "meterStop": 1})
+    assert stopped["transactionId"] is None
+    assert stopped["idTag"] is None
+    trailed = apply_charger_state(stopped, "MeterValues", {"transactionId": 7, "meterValue": []})
+    assert trailed["transactionId"] is None
+    nxt = apply_charger_state(trailed, "MeterValues", {"transactionId": 9, "meterValue": []})
+    assert nxt["transactionId"] == 9
+
+
+def test_meter_without_transaction_clears_the_id():
+    live = apply_charger_state({}, "MeterValues", {"transactionId": "7", "meterValue": []})
+    assert live["transactionId"] == 7
+    idle = apply_charger_state(live, "MeterValues", {"meterValue": []})
+    assert idle["transactionId"] is None
+
+
+def test_available_clears_the_session():
+    live = apply_charger_state(
+        {"transactionId": 7, "idTag": "no-card"},
+        "StatusNotification",
+        {"status": "Available"},
+    )
+    assert live["status"] == "Available"
+    assert live["transactionId"] is None
+    assert live["idTag"] is None
+
+
+def test_change_configuration_label_includes_the_requested_value():
+    assert (
+        label_for(
+            "ChangeConfiguration",
+            {"key": "MeterValueSampleInterval", "value": "7"},
+        )
+        == "Change MeterValueSampleInterval = 7"
+    )
+    assert label_for("ChangeConfiguration", {"key": "AuthorizeRemoteTxRequests"}) == (
+        "Change AuthorizeRemoteTxRequests"
+    )
 
 
 def test_ocpp_phase_attribute():

@@ -13,25 +13,66 @@ log = logging.getLogger("ui-events")
 UI_EVENT_URL = os.environ.get("UI_EVENT_URL", "").strip()
 
 
+def event_body(
+    *,
+    src: str,
+    dst: str,
+    action: str = "",
+    payload: dict[str, Any] | None = None,
+    received: dict[str, Any] | None = None,
+    fate: str = "forward",
+    unique_id: str | None = None,
+    message_type: str = "Call",
+    hop: str = "",
+) -> dict[str, Any]:
+    """One OCPP frame as it crossed a socket.
+
+    ``payload`` is the body on the wire. ``received`` is the body before a
+    rewrite, and is omitted when nothing changed. ``hop`` is ``upstream``
+    (shim to a backend) or ``charger`` (dummy to the wallbox).
+    """
+    wire = payload or {}
+    body: dict[str, Any] = {
+        "src": src,
+        "dst": dst,
+        "action": action or "",
+        "payload": wire,
+        "fate": fate,
+        "uniqueId": unique_id,
+        "messageType": message_type or "Call",
+    }
+    if hop:
+        body["hop"] = hop
+    if received is not None and received != wire:
+        body["received"] = received
+    return body
+
+
 async def emit_ocpp_event(
     *,
     src: str,
     dst: str,
     action: str,
     payload: dict[str, Any] | None = None,
+    received: dict[str, Any] | None = None,
     fate: str = "forward",
     unique_id: str | None = None,
+    message_type: str = "Call",
+    hop: str = "",
 ) -> None:
     if not UI_EVENT_URL:
         return
-    body = {
-        "src": src,
-        "dst": dst,
-        "action": action or "",
-        "payload": payload or {},
-        "fate": fate,
-        "uniqueId": unique_id,
-    }
+    body = event_body(
+        src=src,
+        dst=dst,
+        action=action,
+        payload=payload,
+        received=received,
+        fate=fate,
+        unique_id=unique_id,
+        message_type=message_type,
+        hop=hop,
+    )
     try:
         timeout = aiohttp.ClientTimeout(total=0.8)
         async with aiohttp.ClientSession(timeout=timeout) as session:

@@ -35,8 +35,11 @@ class EventIn(BaseModel):
     dst: str
     action: str = ""
     payload: dict[str, Any] = Field(default_factory=dict)
+    received: dict[str, Any] | None = None
     fate: str = "forward"
     uniqueId: str | None = None
+    messageType: str = "Call"
+    hop: str = ""
 
 
 class Hub:
@@ -76,6 +79,9 @@ def charger_public() -> dict[str, Any]:
         "phases": int(CHARGER_STATE.get("phases") or 0),
         "amps": [amps.get("L1"), amps.get("L2"), amps.get("L3")],
         "kw": CHARGER_STATE.get("kw") or 0,
+        "transactionId": CHARGER_STATE.get("transactionId"),
+        "idTag": CHARGER_STATE.get("idTag"),
+        "energyWh": CHARGER_STATE.get("energyWh"),
     }
 
 
@@ -171,18 +177,46 @@ async def catalog() -> dict[str, Any]:
     }
 
 
+RESULT_ACTIONS = {
+    "StartTransaction",
+    "StopTransaction",
+    "RemoteStartTransaction",
+    "RemoteStopTransaction",
+    "Authorize",
+    "SetChargingProfile",
+    "ClearChargingProfile",
+    "ChangeConfiguration",
+    "ChangeAvailability",
+}
+
+
+def event_label(message_type: str, action: str, payload: dict[str, Any]) -> str:
+    label = label_for(action, payload)
+    if message_type == "CallResult":
+        return f"Result {label}" if action else "Result"
+    if message_type == "CallError":
+        code = str(payload.get("errorCode") or action or "OCPP")
+        return f"Error {code}"
+    return label
+
+
 @app.post("/internal/event")
 async def internal_event(body: EventIn) -> JSONResponse:
-    if body.src == "charger":
+    message_type = body.messageType if body.messageType in {"Call", "CallResult", "CallError"} else "Call"
+    if body.src == "charger" and message_type == "Call":
         CHARGER_STATE.update(apply_charger_state(CHARGER_STATE, body.action, body.payload))
     event = {
         "id": str(uuid.uuid4()),
         "src": body.src,
         "dst": body.dst,
         "action": body.action,
-        "label": label_for(body.action, body.payload),
+        "label": event_label(message_type, body.action, body.payload),
         "fate": body.fate if body.fate in {"forward", "drop"} else "forward",
         "uniqueId": body.uniqueId,
+        "messageType": message_type,
+        "hop": body.hop,
+        "payload": body.payload,
+        "received": body.received,
         "charger": charger_public(),
     }
     try:
@@ -194,12 +228,17 @@ async def internal_event(body: EventIn) -> JSONResponse:
                 "fate": event["fate"],
                 "uniqueId": event["uniqueId"],
                 "label": event["label"],
+                "messageType": message_type,
+                "hop": body.hop,
                 "payload": body.payload,
+                "received": body.received,
             }
         )
     except Exception:
         pass
-    await HUB.broadcast(event)
+    show = message_type == "Call" or message_type == "CallError" or body.action in RESULT_ACTIONS or body.received is not None
+    if show:
+        await HUB.broadcast(event)
     return JSONResponse({"ok": True, "label": event["label"]})
 
 

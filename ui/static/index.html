@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ocpp-fanout</title>
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/app.css?v=20261025c">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
 </head>
@@ -25,6 +25,7 @@
         <div class="node charger" data-node="charger">
           <img src="/static/img/goe-gemini.png" alt="go-e Gemini">
           <span>go-e Gemini</span>
+          <span class="txn-id" id="charger-txn" hidden></span>
         </div>
         <svg class="ev-link" viewBox="0 0 80 90" aria-hidden="true">
           <path id="ev-cable" class="ev-cable" d="M 2 40 C 18 40, 24 70, 40 72 S 62 46, 78 42"/>
@@ -54,6 +55,7 @@
           <img class="ev-photo ev-photo-light" src="/static/img/tesla-models-black.png" alt="Tesla Model S">
           <span>EV</span>
           <div class="ev-stats" id="ev-stats">
+            <span data-k="txn"></span>
             <span data-k="phases"></span>
             <span data-k="amps"></span>
             <span data-k="kw"></span>
@@ -99,8 +101,21 @@
       </div>
     </section>
     <aside class="log">
-      <h2>Packets</h2>
-      <ol id="log"></ol>
+      <section class="session" id="session" aria-label="Charging session">
+        <h2>Session</h2>
+        <dl>
+          <div><dt>Status</dt><dd data-k="status">–</dd></div>
+          <div><dt>Transaction</dt><dd data-k="transactionId">–</dd></div>
+          <div><dt>idTag</dt><dd data-k="idTag">–</dd></div>
+          <div><dt>Power</dt><dd data-k="power">–</dd></div>
+          <div><dt>Energy</dt><dd data-k="energy">–</dd></div>
+          <div><dt>Phases</dt><dd data-k="phases">–</dd></div>
+        </dl>
+      </section>
+      <div class="log-scroll">
+        <h2>Packets</h2>
+        <ol id="log"></ol>
+      </div>
     </aside>
   </main>
 
@@ -138,6 +153,6 @@
       <p id="save-msg" class="msg" hidden></p>
     </form>
   </main>
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=20261025d"></script>
 </body>
 </html>

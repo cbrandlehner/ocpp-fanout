@@ -134,3 +134,138 @@ def test_charger_status_from_status_notification():
     assert charger_status_from_call("StatusNotification", {"status": "Charging"}) == "Charging"
     assert charger_status_from_call("MeterValues", {"status": "Charging"}) is None
     assert charger_status_from_call("StatusNotification", {}) is None
+
+
+def test_transaction_id_of_rejects_bool_and_non_positive():
+    from app import transaction_id_of
+
+    assert transaction_id_of(True) is None
+    assert transaction_id_of(False) is None
+    assert transaction_id_of(0) is None
+    assert transaction_id_of(-3) is None
+    assert transaction_id_of("4") == 4
+    assert transaction_id_of(" 7 ") == 7
+    assert transaction_id_of(7.0) == 7
+    assert transaction_id_of(7.5) is None
+    assert transaction_id_of(None) is None
+
+
+def test_meter_values_teach_the_live_transaction():
+    csms = DummyCsms()
+    result = asyncio.run(
+        csms.handle_call(
+            "MeterValues",
+            {"connectorId": 1, "transactionId": 7, "meterValue": []},
+            "206540",
+        )
+    )
+    assert result == {}
+    assert csms.active_txn["206540"] == 7
+    asyncio.run(csms.handle_call("MeterValues", {"connectorId": 1, "meterValue": []}, "206540"))
+    assert csms.active_txn["206540"] == 7
+
+
+def test_start_after_meter_does_not_reuse_a_lower_id():
+    csms = DummyCsms()
+    asyncio.run(
+        csms.handle_call("MeterValues", {"connectorId": 1, "transactionId": "7"}, "206540")
+    )
+    started = asyncio.run(csms.handle_call("StartTransaction", {"connectorId": 1, "idTag": "x"}, "206540"))
+    assert started["transactionId"] == 8
+    assert csms.active_txn["206540"] == 8
+
+
+def test_remote_stop_rewrites_wrong_id_and_retries_same_session():
+    csms = DummyCsms()
+    csms.active_txn["206540"] = 7
+    first = csms.remote_stop_payload("206540", {"transactionId": 4}, "enphase")
+    second = csms.remote_stop_payload("206540", {"transactionId": 4}, "enphase")
+    assert first["transactionId"] == 7
+    assert second["transactionId"] == 7
+
+
+def test_remote_stop_same_id_is_not_rewritten_again_onto_a_newer_session():
+    csms = DummyCsms()
+    csms.active_txn["206540"] = 7
+    assert csms.remote_stop_payload("206540", {"transactionId": 4}, "enphase")["transactionId"] == 7
+    asyncio.run(csms.handle_call("StopTransaction", {"transactionId": 7}, "206540"))
+    assert "206540" not in csms.active_txn
+    csms.note_active_transaction("206540", 8)
+    stale = csms.remote_stop_payload("206540", {"transactionId": 4}, "enphase")
+    assert stale == {"transactionId": 4}
+    other_backend = csms.remote_stop_payload("206540", {"transactionId": 4}, "monta")
+    assert other_backend["transactionId"] == 8
+    new_enphase_id = csms.remote_stop_payload("206540", {"transactionId": 5}, "enphase")
+    assert new_enphase_id["transactionId"] == 8
+
+
+def test_remote_stop_without_live_transaction_is_unchanged():
+    csms = DummyCsms()
+    assert csms.remote_stop_payload("206540", {"transactionId": 4}, "enphase") == {"transactionId": 4}
+
+
+def test_remote_stop_matching_and_missing_id():
+    csms = DummyCsms()
+    csms.active_txn["206540"] = 7
+    assert csms.remote_stop_payload("206540", {"transactionId": "7"}, "enphase")["transactionId"] == "7"
+    assert csms.remote_stop_payload("206540", {}, "enphase")["transactionId"] == 7
+
+
+def test_rejected_stop_stays_closed_when_meters_repeat_its_id():
+    csms = DummyCsms()
+    csms.note_active_transaction("206540", 8)
+    csms.close_transaction("206540", 8)
+    csms.note_active_transaction("206540", 8)
+    assert "206540" not in csms.active_txn
+
+
+def test_meter_values_do_not_reopen_a_stopped_transaction():
+    csms = DummyCsms()
+    asyncio.run(
+        csms.handle_call("MeterValues", {"connectorId": 1, "transactionId": 8}, "206540")
+    )
+    asyncio.run(csms.handle_call("StopTransaction", {"transactionId": 8}, "206540"))
+    asyncio.run(
+        csms.handle_call("MeterValues", {"connectorId": 1, "transactionId": 8, "meterValue": []}, "206540")
+    )
+    assert "206540" not in csms.active_txn
+    asyncio.run(
+        csms.handle_call("StartTransaction", {"connectorId": 1, "idTag": "no-card"}, "206540")
+    )
+    assert csms.active_txn["206540"] == 9
+
+
+def test_stop_transaction_ignores_a_different_id():
+    csms = DummyCsms()
+    csms.active_txn["206540"] = 7
+    asyncio.run(csms.handle_call("StopTransaction", {"transactionId": 4}, "206540"))
+    assert csms.active_txn["206540"] == 7
+
+
+def test_inject_remote_stop_sends_the_live_id():
+    csms = DummyCsms()
+    csms.active_txn["CP001"] = 7
+
+    class _Ws:
+        closed = False
+
+        def __init__(self) -> None:
+            self.sent: list[str] = []
+
+        async def send_str(self, raw: str) -> None:
+            self.sent.append(raw)
+            parsed = decode(raw)
+            csms.pending[parsed["uniqueId"]].set_result({"ok": True, "payload": {"status": "Accepted"}})
+
+    ws = _Ws()
+    csms.sockets["CP001"] = ws  # type: ignore[assignment]
+    result = asyncio.run(
+        csms.inject_call("RemoteStopTransaction", {"transactionId": 4}, "CP001", via="enphase")
+    )
+    assert result["ok"] is True
+    assert result["payload"]["status"] == "Accepted"
+    assert result["sentTransactionId"] == 7
+    assert result["requestedTransactionId"] == 4
+    sent = decode(ws.sent[0])
+    assert sent["action"] == "RemoteStopTransaction"
+    assert sent["payload"]["transactionId"] == 7

@@ -147,10 +147,47 @@ async function spawnChip(event) {
   chip.remove();
 }
 
+function payloadLines(value, prefix, out) {
+  if (out === undefined) {
+    const lines = [];
+    payloadLines(value, "", lines);
+    return lines;
+  }
+  if (value == null || value === "") return;
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => {
+      payloadLines(item, prefix ? `${prefix}[${index}]` : `[${index}]`, out);
+    });
+    return;
+  }
+  if (typeof value === "object") {
+    for (const [key, child] of Object.entries(value)) {
+      payloadLines(child, prefix ? `${prefix}.${key}` : key, out);
+    }
+    return;
+  }
+  out.push(prefix ? `${prefix} = ${value}` : String(value));
+}
+
 function logEvent(event) {
   const li = document.createElement("li");
   if (event.fate === "drop") li.className = "drop";
-  li.textContent = `${event.src} → ${event.fate === "drop" ? "trash" : event.dst}  ${event.label}`;
+  const route = document.createElement("div");
+  route.className = "route";
+  const hop = event.hop ? ` [${event.hop}]` : "";
+  const kind = event.messageType && event.messageType !== "Call" ? `${event.messageType} ` : "";
+  route.textContent = `${event.src} → ${event.fate === "drop" ? "trash" : event.dst}${hop}  ${kind}${event.label}`;
+  li.appendChild(route);
+  const lines = [];
+  if (event.received) lines.push(...payloadLines(event.received).map((line) => `received.${line}`));
+  const sent = payloadLines(event.payload);
+  lines.push(...(event.received ? sent.map((line) => `sent.${line}`) : sent));
+  if (lines.length) {
+    const vals = document.createElement("div");
+    vals.className = "vals";
+    vals.textContent = lines.join("\n");
+    li.appendChild(vals);
+  }
   const ol = $("#log");
   ol.prepend(li);
   while (ol.children.length > 40) ol.lastChild.remove();
@@ -163,17 +200,53 @@ function formatAmp(value) {
   return n.toFixed(1);
 }
 
+function dash(value) {
+  return value == null || value === "" ? "–" : String(value);
+}
+
+function powerText(state) {
+  if (state.watts == null) return "–";
+  return `${Number(state.kw || 0).toFixed(2)} kW`;
+}
+
+function energyText(state) {
+  if (state.energyWh == null) return "–";
+  return `${(Number(state.energyWh) / 1000).toFixed(1)} kWh`;
+}
+
+function phaseText(state) {
+  const phases = Number(state.phases || 0);
+  if (!phases) return "–";
+  const amps = state.amps || [];
+  return `${phases} · L1 ${formatAmp(amps[0])} L2 ${formatAmp(amps[1])} L3 ${formatAmp(amps[2])} A`;
+}
+
 function applyCharger(state) {
   const site = $("#site");
   if (!site || !state) return;
   site.classList.toggle("plugged", !!state.plugged);
   site.classList.toggle("charging", !!state.charging);
   if (state.status) site.dataset.status = state.status;
+  const txnEl = $("#charger-txn");
+  if (txnEl) {
+    txnEl.hidden = state.transactionId == null;
+    txnEl.textContent = state.transactionId == null ? "" : `Txn ${state.transactionId}`;
+  }
+  const session = $("#session");
+  if (session) {
+    session.querySelector("[data-k=status]").textContent = dash(state.status);
+    session.querySelector("[data-k=transactionId]").textContent = dash(state.transactionId);
+    session.querySelector("[data-k=idTag]").textContent = dash(state.idTag);
+    session.querySelector("[data-k=power]").textContent = powerText(state);
+    session.querySelector("[data-k=energy]").textContent = energyText(state);
+    session.querySelector("[data-k=phases]").textContent = phaseText(state);
+  }
   const stats = $("#ev-stats");
-  if (!stats) return;
-  if (!state.charging) return;
+  if (!stats || !state.charging) return;
   const phases = Number(state.phases || 0);
   const amps = state.amps || [];
+  const txnLine = stats.querySelector("[data-k=txn]");
+  if (txnLine) txnLine.textContent = state.transactionId == null ? "Txn –" : `Txn ${state.transactionId}`;
   stats.querySelector("[data-k=phases]").textContent = phases ? `${phases} Phasen` : "Phasen –";
   stats.querySelector("[data-k=amps]").textContent =
     `L1 ${formatAmp(amps[0])} · L2 ${formatAmp(amps[1])} · L3 ${formatAmp(amps[2])} A`;

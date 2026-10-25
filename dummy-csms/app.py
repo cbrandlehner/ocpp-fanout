@@ -132,6 +132,25 @@ def charger_status_from_call(action: str, payload: dict[str, Any] | None) -> str
     return str(status)
 
 
+def transaction_id_of(value: Any) -> int | None:
+    """Positive OCPP transactionId. Rejects bool, because bool is an int subclass."""
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int):
+        number = value
+    elif isinstance(value, float):
+        if not value.is_integer():
+            return None
+        number = int(value)
+    elif isinstance(value, str) and value.strip().isdigit():
+        number = int(value.strip())
+    else:
+        return None
+    if number <= 0:
+        return None
+    return number
+
+
 def ui_config_url() -> str:
     return os.environ.get("UI_CONFIG_URL", "").strip() or derive_ui_config_url(UI_EVENT_URL)
 
@@ -191,8 +210,13 @@ class DummyCsms:
         self.sockets: dict[str, web.WebSocketResponse] = {}
         self.send_locks: dict[str, asyncio.Lock] = {}
         self.pending: dict[str, asyncio.Future] = {}
+        self.pending_meta: dict[str, dict[str, str]] = {}
         self.started_at = utc_now_iso()
         self.last_status: str | None = None
+        self.active_txn: dict[str, int] = {}
+        self._closed_txn: dict[str, set[int]] = {}
+        # (charge point, backend, requested id) -> charger transaction already stopped by that id.
+        self._stop_alias: dict[tuple[str, str, int], int] = {}
 
     def pick_cpid(self, requested: str | None = None) -> str | None:
         live = [cp for cp, ws in self.sockets.items() if not ws.closed]
@@ -204,12 +228,97 @@ class DummyCsms:
             return None
         return live[0] if live else None
 
+    def note_active_transaction(self, charge_point_id: str | None, transaction_id: Any) -> None:
+        txn = transaction_id_of(transaction_id)
+        if not charge_point_id or txn is None:
+            return
+        if txn in self._closed_txn.get(charge_point_id, ()):
+            return
+        if txn > self._txn:
+            self._txn = txn
+        previous = self.active_txn.get(charge_point_id)
+        if previous == txn:
+            return
+        self.active_txn[charge_point_id] = txn
+        jlog(
+            "info",
+            "active transaction",
+            chargePointId=charge_point_id,
+            transactionId=txn,
+            previous=previous,
+        )
+
+    def close_transaction(self, charge_point_id: str | None, transaction_id: Any) -> None:
+        """Remember a charger transaction that has ended, so trailing meter values cannot reopen it."""
+        txn = transaction_id_of(transaction_id)
+        if not charge_point_id or txn is None:
+            return
+        self._closed_txn.setdefault(charge_point_id, set()).add(txn)
+        if self.active_txn.get(charge_point_id) == txn:
+            self.active_txn.pop(charge_point_id, None)
+
+    def note_transaction_stopped(self, charge_point_id: str | None, transaction_id: Any) -> None:
+        if not charge_point_id:
+            return
+        stopped = transaction_id_of(transaction_id)
+        if stopped is None:
+            return
+        was_active = self.active_txn.get(charge_point_id) == stopped
+        self.close_transaction(charge_point_id, stopped)
+        if was_active:
+            jlog("info", "transaction ended", chargePointId=charge_point_id, transactionId=stopped)
+
+    def remote_stop_payload(
+        self,
+        charge_point_id: str,
+        payload: dict[str, Any] | None,
+        via: str = "",
+    ) -> dict[str, Any]:
+        """Send RemoteStop at the charger's live transaction when the backend id differs.
+
+        A requested id is bound to the first live transaction it corrected. Later
+        retries of that same id must not stop a newer session.
+        """
+        body = dict(payload or {})
+        active = self.active_txn.get(charge_point_id)
+        if active is None:
+            return body
+        requested = transaction_id_of(body.get("transactionId"))
+        if requested == active:
+            return body
+        backend = via or ""
+        if requested is not None:
+            aimed = self._stop_alias.get((charge_point_id, backend, requested))
+            if aimed is not None and aimed != active:
+                jlog(
+                    "info",
+                    "RemoteStop stale id left unchanged",
+                    chargePointId=charge_point_id,
+                    via=backend,
+                    requested=body.get("transactionId"),
+                    transactionId=active,
+                    alreadyStopped=aimed,
+                )
+                return body
+            self._stop_alias[(charge_point_id, backend, requested)] = active
+        jlog(
+            "info",
+            "RemoteStop transaction rewritten",
+            chargePointId=charge_point_id,
+            via=backend,
+            requested=body.get("transactionId"),
+            transactionId=active,
+        )
+        body["transactionId"] = active
+        return body
+
     async def inject_call(
         self,
         action: str,
         payload: dict[str, Any] | None = None,
         charge_point_id: str | None = None,
         timeout: float = 12.0,
+        via: str | None = None,
     ) -> dict[str, Any]:
         """Send a CSMS Call on the primary joulo link and wait for CallResult."""
         action = (action or "").strip()
@@ -221,17 +330,57 @@ class DummyCsms:
         ws = self.sockets.get(cpid)
         if ws is None or ws.closed:
             return {"ok": False, "error": "charger not connected"}
+        outgoing = dict(payload or {})
+        if action == "RemoteStopTransaction":
+            outgoing = self.remote_stop_payload(cpid, outgoing, via or "")
         unique_id = str(uuid.uuid4())
         loop = asyncio.get_running_loop()
         fut: asyncio.Future = loop.create_future()
         self.pending[unique_id] = fut
-        raw = encode_call(unique_id, action, payload or {})
+        self.pending_meta[unique_id] = {"action": action, "via": via or "dummy"}
+        raw = encode_call(unique_id, action, outgoing)
         try:
             lock = self.send_locks.setdefault(cpid, asyncio.Lock())
             async with lock:
                 await ws.send_str(raw)
-            jlog("info", "inject → charger", chargePointId=cpid, action=action, uniqueId=unique_id)
+            emit_soon(
+                src=via or "dummy",
+                dst="charger",
+                action=action,
+                payload=outgoing,
+                received=(payload or {}) if outgoing != (payload or {}) else None,
+                fate="forward",
+                unique_id=unique_id,
+                hop="charger",
+            )
+            logged: dict[str, Any] = {
+                "chargePointId": cpid,
+                "action": action,
+                "uniqueId": unique_id,
+            }
+            if action == "RemoteStopTransaction":
+                logged["transactionId"] = outgoing.get("transactionId")
+                logged["requested"] = (payload or {}).get("transactionId")
+                if via:
+                    logged["via"] = via
+            jlog("info", "inject → charger", **logged)
             result = await asyncio.wait_for(fut, timeout)
+            if action == "RemoteStopTransaction":
+                result = dict(result)
+                result["sentTransactionId"] = outgoing.get("transactionId")
+                result["requestedTransactionId"] = (payload or {}).get("transactionId")
+                result_payload = result.get("payload") if isinstance(result.get("payload"), dict) else {}
+                jlog(
+                    "info",
+                    "RemoteStop result",
+                    chargePointId=cpid,
+                    via=via or "",
+                    transactionId=outgoing.get("transactionId"),
+                    status=result_payload.get("status"),
+                    ok=result.get("ok"),
+                )
+                if result_payload.get("status") == "Rejected":
+                    self.close_transaction(cpid, outgoing.get("transactionId"))
             return result
         except TimeoutError:
             jlog("warn", "inject timeout", chargePointId=cpid, action=action, uniqueId=unique_id)
@@ -241,6 +390,7 @@ class DummyCsms:
             return {"ok": False, "error": str(exc)}
         finally:
             self.pending.pop(unique_id, None)
+            self.pending_meta.pop(unique_id, None)
 
     async def next_transaction_id(self) -> int:
         async with self._lock:
@@ -260,12 +410,18 @@ class DummyCsms:
                     "lastAction": info.get("lastAction"),
                     "lastSeen": info.get("lastSeen"),
                     "protocol": info.get("protocol"),
+                    "activeTransactionId": self.active_txn.get(cp_id),
                 }
                 for cp_id, info in self.connections.items()
             ],
         }
 
-    async def handle_call(self, action: str, payload: dict[str, Any]) -> dict[str, Any]:
+    async def handle_call(
+        self,
+        action: str,
+        payload: dict[str, Any],
+        charge_point_id: str | None = None,
+    ) -> dict[str, Any]:
         if action == "BootNotification":
             return {
                 "status": "Accepted",
@@ -278,14 +434,18 @@ class DummyCsms:
             return {"idTagInfo": {"status": "Accepted"}}
         if action == "StartTransaction":
             txn = await self.next_transaction_id()
+            self.note_active_transaction(charge_point_id, txn)
             return {"transactionId": txn, "idTagInfo": {"status": "Accepted"}}
         if action == "StopTransaction":
+            self.note_transaction_stopped(charge_point_id, payload.get("transactionId"))
             return {"idTagInfo": {"status": "Accepted"}}
+        if action == "MeterValues":
+            self.note_active_transaction(charge_point_id, payload.get("transactionId"))
+            return {}
         if action == "DataTransfer":
             return {"status": "Accepted"}
         if action in {
             "StatusNotification",
-            "MeterValues",
             "FirmwareStatusNotification",
             "DiagnosticsStatusNotification",
             "SecurityEventNotification",
@@ -325,7 +485,8 @@ async def inject(request: web.Request) -> web.Response:
     action = str(body.get("action") or "")
     payload = body.get("payload") if isinstance(body.get("payload"), dict) else {}
     cpid = str(body.get("chargePointId") or os.environ.get("CHARGE_POINT_ID") or "")
-    result = await STATE.inject_call(action, payload, cpid or None)
+    via = str(body.get("via") or "")
+    result = await STATE.inject_call(action, payload, cpid or None, via=via)
     status = 200 if result.get("ok") else 409
     if result.get("error") == "timeout":
         status = 504
@@ -384,9 +545,21 @@ async def _on_text(ws: web.WebSocketResponse, cp_id: str, raw: str) -> None:
     msg_type = parsed["messageType"]
 
     if msg_type == CALLRESULT:
+        meta = STATE.pending_meta.get(parsed["uniqueId"]) or {}
         fut = STATE.pending.get(parsed["uniqueId"])
+        result_payload = parsed.get("payload") or {}
+        emit_soon(
+            src="charger",
+            dst=meta.get("via") or "dummy",
+            action=meta.get("action") or "",
+            payload=result_payload,
+            fate="forward",
+            unique_id=parsed["uniqueId"],
+            message_type="CallResult",
+            hop="charger",
+        )
         if fut is not None and not fut.done():
-            fut.set_result({"ok": True, "payload": parsed.get("payload") or {}})
+            fut.set_result({"ok": True, "payload": result_payload})
             return
         jlog(
             "debug",
@@ -396,13 +569,30 @@ async def _on_text(ws: web.WebSocketResponse, cp_id: str, raw: str) -> None:
         )
         return
     if msg_type == CALLERROR:
+        meta = STATE.pending_meta.get(parsed["uniqueId"]) or {}
         fut = STATE.pending.get(parsed["uniqueId"])
+        error_payload = {
+            "errorCode": parsed.get("errorCode") or "",
+            "errorDescription": parsed.get("errorDescription") or "",
+            "errorDetails": parsed.get("errorDetails") or {},
+        }
+        emit_soon(
+            src="charger",
+            dst=meta.get("via") or "dummy",
+            action=meta.get("action") or "",
+            payload=error_payload,
+            fate="forward",
+            unique_id=parsed["uniqueId"],
+            message_type="CallError",
+            hop="charger",
+        )
         if fut is not None and not fut.done():
             fut.set_result(
                 {
                     "ok": False,
                     "error": parsed.get("errorCode") or "CallError",
                     "errorDescription": parsed.get("errorDescription") or "",
+                    "payload": error_payload,
                 }
             )
             return
@@ -438,13 +628,40 @@ async def _on_text(ws: web.WebSocketResponse, cp_id: str, raw: str) -> None:
         pass
 
     try:
-        result = await STATE.handle_call(action, payload)
+        result = await STATE.handle_call(action, payload, cp_id)
         await ws.send_str(encode_call_result(unique_id, result))
-        emit_soon(src="charger", dst="dummy", action=action, payload=payload, fate="forward", unique_id=unique_id)
+        emit_soon(
+            src="charger",
+            dst="dummy",
+            action=action,
+            payload=payload,
+            fate="forward",
+            unique_id=unique_id,
+            hop="charger",
+        )
+        emit_soon(
+            src="dummy",
+            dst="charger",
+            action=action,
+            payload=result if isinstance(result, dict) else {},
+            fate="forward",
+            unique_id=unique_id,
+            message_type="CallResult",
+            hop="charger",
+        )
     except Exception as exc:  # noqa: BLE001
         jlog("error", "handler failed", chargePointId=cp_id, action=action, error=str(exc))
-        await ws.send_str(
-            encode_call_error(unique_id, "InternalError", str(exc), {})
+        error_payload = {"errorCode": "InternalError", "errorDescription": str(exc), "errorDetails": {}}
+        await ws.send_str(encode_call_error(unique_id, "InternalError", str(exc), {}))
+        emit_soon(
+            src="dummy",
+            dst="charger",
+            action=action,
+            payload=error_payload,
+            fate="forward",
+            unique_id=unique_id,
+            message_type="CallError",
+            hop="charger",
         )
 
 

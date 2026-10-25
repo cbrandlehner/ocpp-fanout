@@ -58,12 +58,17 @@ class CommandLog:
             "ts": datetime.now(TZ).isoformat(timespec="milliseconds"),
             "src": record.get("src"),
             "dst": record.get("dst"),
+            "messageType": record.get("messageType") or "Call",
             "action": record.get("action") or "",
             "fate": record.get("fate") or "forward",
             "uniqueId": record.get("uniqueId"),
             "label": record.get("label") or "",
             "payload": self._payload(record.get("payload")),
         }
+        if record.get("hop"):
+            line["hop"] = record.get("hop")
+        if record.get("received") is not None:
+            line["received"] = self._payload(record.get("received"))
         encoded = json.dumps(line, ensure_ascii=False, separators=(",", ":")) + "\n"
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:

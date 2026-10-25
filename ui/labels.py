@@ -20,6 +20,9 @@ EMPTY_CHARGER_STATE: dict[str, Any] = {
     "phases": 0,
     "amps": {"L1": None, "L2": None, "L3": None},
     "kw": 0.0,
+    "transactionId": None,
+    "idTag": None,
+    "energyWh": None,
 }
 
 
@@ -85,6 +88,41 @@ def meter_amps(payload: dict[str, Any] | None) -> dict[str, float | None]:
     return amps
 
 
+def transaction_id_of(value: Any) -> int | None:
+    """Positive OCPP transactionId. Rejects bool, because bool is an int subclass."""
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int):
+        number = value
+    elif isinstance(value, float) and value.is_integer():
+        number = int(value)
+    elif isinstance(value, str) and value.strip().isdigit():
+        number = int(value.strip())
+    else:
+        return None
+    return number if number > 0 else None
+
+
+def energy_wh(payload: dict[str, Any] | None) -> float | None:
+    for sampled in _sampled_values(payload or {}):
+        meas, value = _measurand(sampled)
+        if meas != "Energy.Active.Import.Register" or sampled.get("phase"):
+            continue
+        wh = _as_float(value)
+        if wh is not None:
+            return wh
+    return None
+
+
+def _closed_ids(state: dict[str, Any]) -> set[int]:
+    found: set[int] = set()
+    for value in state.get("_closedTxn") or []:
+        txn = transaction_id_of(value)
+        if txn is not None:
+            found.add(txn)
+    return found
+
+
 def meter_phases(amps: dict[str, float | None], watts: int | None = None) -> int:
     active = sum(1 for value in amps.values() if value is not None and value >= 0.4)
     if active:
@@ -103,6 +141,7 @@ def apply_charger_state(
     out = dict(EMPTY_CHARGER_STATE)
     if state:
         out.update(state)
+    closed = _closed_ids(out)
     payload = payload or {}
     if action == "StatusNotification":
         status = payload.get("status")
@@ -115,11 +154,14 @@ def apply_charger_state(
                 out["kw"] = 0.0
                 out["phases"] = 0
                 out["amps"] = {"L1": None, "L2": None, "L3": None}
+                out["transactionId"] = None
+                out["idTag"] = None
             else:
                 out["charging"] = status == "Charging"
     elif action == "MeterValues":
         watts = power_watts(payload)
         amps = meter_amps(payload)
+        wh = energy_wh(payload)
         if any(v is not None for v in amps.values()):
             out["amps"] = amps
             out["phases"] = meter_phases(amps, watts)
@@ -134,16 +176,36 @@ def apply_charger_state(
             elif status != "Charging":
                 out["charging"] = False
                 out["phases"] = meter_phases(amps, watts)
+        if wh is not None:
+            out["energyWh"] = wh
+        txn = transaction_id_of(payload.get("transactionId"))
+        if txn is not None and txn not in closed:
+            out["transactionId"] = txn
+        else:
+            out["transactionId"] = None
     elif action == "StartTransaction":
         out["plugged"] = True
         out["charging"] = True
+        tag = payload.get("idTag")
+        if tag:
+            out["idTag"] = str(tag)
+        txn = transaction_id_of(payload.get("transactionId"))
+        if txn is not None and txn not in closed:
+            out["transactionId"] = txn
     elif action == "StopTransaction":
+        stopped = transaction_id_of(payload.get("transactionId"))
+        if stopped is not None:
+            closed.add(stopped)
+        if stopped is None or out.get("transactionId") == stopped:
+            out["transactionId"] = None
+            out["idTag"] = None
         out["charging"] = False
         out["watts"] = 0
         out["kw"] = 0.0
         out["phases"] = 0
         out["amps"] = {"L1": None, "L2": None, "L3": None}
         out["plugged"] = True
+    out["_closedTxn"] = sorted(closed)
     return out
 
 
@@ -196,7 +258,10 @@ def label_for(action: str, payload: dict[str, Any] | None = None) -> str:
         return "Clear profile"
     if action == "ChangeConfiguration":
         key = payload.get("key") or "config"
-        return f"Change {key}"
+        value = payload.get("value")
+        if value is None or value == "":
+            return f"Change {key}"
+        return f"Change {key} = {value}"
     if action == "Reset":
         return "Reset"
     if action == "Authorize":
